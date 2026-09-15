@@ -1,0 +1,49 @@
+# Environment Variables & Secrets
+.env
+.env.local
+*.env
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# Build & Dist artifacts
+build/
+dist/
+*.spec
+*.egg-info/
+
+# Node & Frontend dependencies
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Logs & Temporary sessions
+*.log
+conversion.log
+temp_sessions/
+output/
+test_artifacts/
+*.pptx
+
+# Cloned third-party repositories
+tools/presenton/
+
+# OS and Editor metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

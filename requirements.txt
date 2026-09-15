@@ -1,0 +1,5 @@
+python-pptx>=1.0.2
+streamlit>=1.30.0
+pillow>=10.0.0
+pydantic>=2.0.0
+google-genai>=1.0.0

@@ -1,0 +1,17 @@
+{
+  "name": "power-point",
+  "version": "1.0.0",
+  "description": "Ushbu loyiha slayd rasmlarini (.jpg, .png, .webp, skrinshotlar) PowerPoint (.pptx) ga aylantiruvchi to\\'liq vositalar to\\'plamidir.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@marp-team/marp-cli": "^4.5.0",
+    "pptxgenjs": "^4.0.1"
+  }
+}

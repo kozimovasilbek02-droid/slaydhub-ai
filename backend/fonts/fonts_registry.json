@@ -1,0 +1,136 @@
+{
+  "calibri": {
+    "name": "Calibri",
+    "type": "system",
+    "file": null,
+    "category": "sans-serif"
+  },
+  "arial": {
+    "name": "Arial",
+    "type": "system",
+    "file": null,
+    "category": "sans-serif"
+  },
+  "times new roman": {
+    "name": "Times New Roman",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "segoe ui": {
+    "name": "Segoe UI",
+    "type": "system",
+    "file": null,
+    "category": "sans-serif"
+  },
+  "aptos": {
+    "name": "Aptos",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "tahoma": {
+    "name": "Tahoma",
+    "type": "system",
+    "file": null,
+    "category": "sans-serif"
+  },
+  "verdana": {
+    "name": "Verdana",
+    "type": "system",
+    "file": null,
+    "category": "sans-serif"
+  },
+  "georgia": {
+    "name": "Georgia",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "trebuchet ms": {
+    "name": "Trebuchet MS",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "impact": {
+    "name": "Impact",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "comic sans ms": {
+    "name": "Comic Sans MS",
+    "type": "system",
+    "file": null,
+    "category": "sans-serif"
+  },
+  "consolas": {
+    "name": "Consolas",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "courier new": {
+    "name": "Courier New",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "microsoft yahei": {
+    "name": "Microsoft YaHei",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "simsun": {
+    "name": "SimSun",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "simhei": {
+    "name": "SimHei",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "kaiti": {
+    "name": "KaiTi",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "fangsong": {
+    "name": "FangSong",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "malgun gothic": {
+    "name": "Malgun Gothic",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "meiryo": {
+    "name": "Meiryo",
+    "type": "system",
+    "file": null,
+    "category": "serif"
+  },
+  "architects daughter": {
+    "name": "Architects Daughter",
+    "type": "custom",
+    "file": "Architects_Daughter.ttf",
+    "url": "https://fonts.gstatic.com/s/architectsdaughter/v20/KtkxAKiDZI_td1Lkx62xHZHDtgO_Y-bvTYlg5u7jA-U.ttf",
+    "size_kb": 21.86
+  },
+  "charm": {
+    "name": "Charm",
+    "type": "custom",
+    "file": "Charm.ttf",
+    "url": "https://fonts.gstatic.com/s/charm/v14/7cHmv4oii5K0MdYoK-sW4nIp.ttf",
+    "size_kb": 43.49
+  }
+}
