@@ -132,5 +132,10 @@
     "file": "Charm.ttf",
     "url": "https://fonts.gstatic.com/s/charm/v14/7cHmv4oii5K0MdYoK-sW4nIp.ttf",
     "size_kb": 43.49
+  },
+  "+mj-lt": {
+    "name": "+mj-lt",
+    "type": "system",
+    "file": null
   }
 }
