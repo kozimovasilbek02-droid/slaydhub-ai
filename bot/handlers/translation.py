@@ -38,8 +38,15 @@ async def cb_start_translate(callback: types.CallbackQuery, state: FSMContext):
 
 
 async def process_translation(message: types.Message, input_path: Path, original_name: str):
+    import asyncio
     status_msg = await message.answer("📥 Slayd tahlil qilinmoqda...", parse_mode="HTML")
-    output_filename = f"Uzbek_{original_name}"
+    
+    # 1. Taqdimot va fayl nomini o'zbek tiliga chiroyli tarjima qilish
+    clean_title = await asyncio.to_thread(
+        translator_service.get_clean_presentation_title,
+        original_name
+    )
+    output_filename = f"{clean_title}.pptx"
     output_path = OUTPUT_DIR / output_filename
 
     try:
@@ -54,7 +61,8 @@ async def process_translation(message: types.Message, input_path: Path, original
             input_pptx=str(input_path),
             output_pptx=str(output_path),
             target_script="latin",
-            progress_callback=update_progress
+            progress_callback=update_progress,
+            presentation_title=clean_title
         )
 
         if not result.get("success"):

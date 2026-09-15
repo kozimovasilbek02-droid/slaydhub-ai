@@ -27,12 +27,32 @@ class TranslatorService:
         self.api_key = api_key or GEMINI_API_KEY
         self.translator = GeminiTranslator(api_key=self.api_key)
 
+    def get_clean_presentation_title(self, raw_filename: str, target_script: str = "latin") -> str:
+        import re
+        base, _ = os.path.splitext(raw_filename)
+        base = re.sub(r"[\(\[\{]\d+[\)\]\}]", "", base)
+        base = re.sub(r"[-_]?\s*(powerpoint\s*templates?|templates?|shablon(lar)?|tarjima(si)?|ozbekcha|uz|translated|translation)", "", base, flags=re.IGNORECASE).strip()
+
+        try:
+            translated = self.translator.translate_single_text(f"Translate presentation title to Uzbek: {base}", target_script=target_script)
+            if translated and translated.strip():
+                clean = re.sub(r"^(taqdimot\s*(nomi|sarlavhasi)?\s*:?|title\s*:?)", "", translated.strip(), flags=re.IGNORECASE).strip()
+                if clean:
+                    base = clean
+        except Exception:
+            pass
+
+        base = re.sub(r'[/\\:*?"<>|_]', " ", base)
+        base = re.sub(r"\s+", " ", base).strip()
+        return base if base else "Taqdimot"
+
     async def translate_presentation(
         self,
         input_pptx: str,
         output_pptx: str,
         target_script: str = "latin",
-        progress_callback: Optional[Callable[[str], Any]] = None
+        progress_callback: Optional[Callable[[str], Any]] = None,
+        presentation_title: str = ""
     ) -> Dict[str, Any]:
         if not os.path.exists(input_pptx):
             raise FileNotFoundError(f"Fayl topilmadi: {input_pptx}")
@@ -86,7 +106,8 @@ class TranslatorService:
             output_pptx_path=output_pptx,
             auto_fit=True,
             target_script=target_script,
-            clean_watermarks=True
+            clean_watermarks=True,
+            presentation_title=presentation_title
         )
 
         # Haqiqiy yakuniy slaydlar sonini tekshirish
