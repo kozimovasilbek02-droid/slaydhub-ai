@@ -61,7 +61,12 @@ class PPTXProcessor:
         r"http[s]?://\S*allppt\S*",
         r"http[s]?://\S*free-powerpoint-templates\S*",
         r"http[s]?://\S*presentationgo\S*",
-        r"bepul\s+ppt\s+shablonlar"
+        r"bepul\s+ppt\s+shablonlar",
+        r"\b(учитель|преподаватель|автор|составитель|разработчик|выполнил[а]?|подготовил[а]?|o['’`]?qituvchi(si)?|muallif(i)?|tayyorladi|bajaruvchi|teacher|author|prepared\s+by)\b",
+        r"\b(школ[аые]|сош|гимнази[яи]|лице[йи]|колледж|институт|университет|доу|детский\s*сад|maktab(i)?|litsey|kollej|bog['’`]?cha|school|lyceum|college|university)\b",
+        r"\b(истори[яи]|математик[аи]|биологи[яи]|физик[аи]|литератур[аы]|geografiy[ai]|tarix|ona\s+tili|adabiyot)\s+(o['’`]?qituvchisi|учитель|преподаватель)\b",
+        r"\b(infourok|multiurok|nsportal|kopilkaurokov|urok\.1sept|videouroki|pedsovet|myshared|ppt4web|zanimatika)\b",
+        r"[А-ЯA-Z]\.\s*[А-ЯA-Z]\.\s*[А-ЯA-Zа-яa-z]{3,}"
     ]
 
     AD_SLIDE_PATTERNS = [
@@ -272,10 +277,15 @@ class PPTXProcessor:
                                 sh._element.getparent().remove(sh._element)
                                 removed += 1
                                 continue
-                        # Pastki footer watermark / link / logo badge (T > 88%, H < 12%)
-                        if t > sh_h * 0.88 and h < sh_h * 0.12:
+                        # Pastki footer watermark / muallif / o'qituvchi / maktab (T > 82%, H < 20%)
+                        if t > sh_h * 0.82 and h < sh_h * 0.20:
                             txt = sh.text_frame.text.strip().lower() if sh.has_text_frame else ""
-                            if any(p in txt for p in ["http", "www", "free", "allppt", "template", "design", ".com"]) or (w < sw * 0.40 and (not txt or "allppt" in sh._element.xml.lower())):
+                            if PPTXProcessor._is_watermark_text(txt) or any(p in txt for p in [
+                                "http", "www", "free", "allppt", "template", "design", ".com",
+                                "antonenkova", "o'qituvchi", "o‘qituvchi", "maktab", "maktabi",
+                                "учитель", "преподаватель", "школа", "сош", "лицей", "гимназия",
+                                "muallif", "автор", "tayyorladi", "подготовил", "выполнил"
+                            ]) or re.search(r"[a-zа-я]\.[a-zа-я]\.\s*[a-zа-я]{3,}", txt) or re.search(r"\d{2}\.\d{2}\.\d{4}", txt):
                                 sh._element.getparent().remove(sh._element)
                                 removed += 1
                                 continue
@@ -979,7 +989,89 @@ class PPTXProcessor:
                     if target_pt < size_pt:
                         first_p.runs[0].font.size = Pt(round(target_pt, 1))
 
-        # 3. Qayta qolgan reklama matnli shakllarini butunlay o'chirish
+        # 1. Sarlavha / Banner shakllarining balandligi va matn sig'ishini optimallashtirish
+        header_shapes = []
+        for tb in all_tbs:
+            tb_top = getattr(tb, 'top', None)
+            tb_h = getattr(tb, 'height', None)
+            tb_w = getattr(tb, 'width', None)
+            if tb_top is not None and tb_h is not None and tb_w is not None:
+                # Yuqori sarlavha paneli (Top 22%, Width > 35%)
+                if tb_top < sh_h * 0.22 and tb_w >= sw * 0.35:
+                    header_shapes.append(tb)
+                    tf = tb.text_frame
+                    txt = tf.text.strip()
+                    if txt:
+                        char_count = len(txt)
+                        # Agar sarlavha 30 belgidan oshsa yoki quti balandligi kichik bo'lsa
+                        if char_count > 30 or "\n" in txt or tb_h < Inches(1.2):
+                            target_header_size = 19.0 if char_count > 45 else 22.0
+                            for p in tf.paragraphs:
+                                p.line_spacing = 1.0
+                                p.space_after = Pt(0)
+                                p.space_before = Pt(0)
+                                for r in p.runs:
+                                    if r.font:
+                                        r.font.size = Pt(target_header_size)
+                        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+                        tf.margin_top = Inches(0.02)
+                        tf.margin_bottom = Inches(0.02)
+
+        # 2. Sarlavha ostidagi kontent bloklari sarlavha ustiga minib qolmasligini ta'minlash
+        if header_shapes:
+            max_header_bottom = max(h.top + h.height for h in header_shapes)
+            for other in slide.shapes:
+                if id(other) not in [id(h) for h in header_shapes]:
+                    o_top = getattr(other, 'top', None)
+                    if o_top is not None and o_top < max_header_bottom + Inches(0.05) and o_top >= max_header_bottom - Inches(0.40):
+                        try:
+                            other.top = int(max_header_bottom + Inches(0.08))
+                        except Exception:
+                            pass
+
+        # 3. Bitta slaydda bir nechta kartochka / bloklar bo'lsa (masalan, 13-slayddagi 8 ta ko'k quti):
+        card_shapes = []
+        for sh in slide.shapes:
+            if getattr(sh, 'has_text_frame', False) and id(sh) not in [id(h) for h in header_shapes]:
+                sh_w = getattr(sh, 'width', None)
+                sh_h_val = getattr(sh, 'height', None)
+                sh_t = getattr(sh, 'top', None)
+                if sh_w and sh_h_val and sh_t and sh_t > sh_h * 0.15:
+                    if sw * 0.15 <= sh_w <= sw * 0.70 and sh_h_val <= sh_h * 0.35:
+                        if sh.text_frame.text.strip():
+                            card_shapes.append(sh)
+
+        if len(card_shapes) >= 3:
+            card_sizes = []
+            for c_sh in card_shapes:
+                txt = c_sh.text_frame.text.strip()
+                c_w_pt = c_sh.width.pt if c_sh.width else 200
+                fit_sz = min(15.0, max(10.0, (c_w_pt / max(1, len(txt))) * 1.7))
+                if len(txt) > 25:
+                    fit_sz = min(fit_sz, 12.0)
+                card_sizes.append(fit_sz)
+
+            unified_card_font = min(card_sizes) if card_sizes else 13.0
+            unified_card_font = max(11.0, min(14.0, unified_card_font))
+
+            for c_sh in card_shapes:
+                tf_c = c_sh.text_frame
+                tf_c.word_wrap = True
+                tf_c.vertical_anchor = MSO_ANCHOR.MIDDLE
+                tf_c.margin_left = Inches(0.02)
+                tf_c.margin_right = Inches(0.02)
+                tf_c.margin_top = Inches(0.02)
+                tf_c.margin_bottom = Inches(0.02)
+                for p in tf_c.paragraphs:
+                    p.alignment = PP_ALIGN.CENTER
+                    p.line_spacing = 1.05
+                    p.space_after = Pt(0)
+                    p.space_before = Pt(0)
+                    for r in p.runs:
+                        if r.font:
+                            r.font.size = Pt(unified_card_font)
+
+        # 4. Qayta qolgan reklama va mualliflik footer matnli shakllarini butunlay o'chirish
         for sh in list(slide.shapes):
             if sh.has_text_frame and PPTXProcessor._is_watermark_text(sh.text_frame.text):
                 try:

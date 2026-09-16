@@ -51,13 +51,16 @@ class ImageTranslator:
 
             prompt = (
                 "You are an elite slide, diagram, flowchart, and infographic OCR translator.\n"
-                "Analyze this presentation image carefully.\n"
-                "Does this image contain text, diagram labels, flowchart boxes, infocards, titles, or annotations in Russian, English, or non-Uzbek text?\n\n"
-                "If it has NO text (pure photo without text, pattern, icon without words), return EXACTLY:\n"
+                "Analyze this presentation image carefully.\n\n"
+                "RULES:\n"
+                "1. If the image is a GEOGRAPHICAL MAP, satellite photo, or terrain with many city/river place names, "
+                "do NOT extract individual town/village names (maps must remain authentic without white sticker patches). "
+                "Only extract main slide titles, diagram cards, or large section headings if present.\n"
+                "2. If the image has NO text (pure photo, artwork without text), return EXACTLY:\n"
                 '{"has_text": false}\n\n'
-                "If it HAS text/labels to translate into Uzbek (Latin script):\n"
-                "Extract each distinct text phrase. The bounding box [ymin, xmin, ymax, xmax] must be 0-1000 scale and MUST FULLY AND GENEROUSLY COVER the original text phrase and its underlying box.\n"
-                "Provide the natural Uzbek translation (Latin script, uppercase if original is uppercase), background hex color 'bg_hex' of that specific box/label, and text hex color 'text_hex'.\n\n"
+                "3. For diagrams, flowcharts, 3D architectural callouts, infocards, and labeled illustrations:\n"
+                "Extract each distinct text box. The bounding box [ymin, xmin, ymax, xmax] (0-1000 scale) must tightly and accurately cover the original text phrase and its card.\n"
+                "Provide the natural Uzbek translation (Latin script), exact background hex color 'bg_hex' of that card/box, and contrasting text hex color 'text_hex'.\n\n"
                 "Return JSON in this format:\n"
                 "{\n"
                 '  "has_text": true,\n'
@@ -66,7 +69,7 @@ class ImageTranslator:
                 '      "box_2d": [ymin, xmin, ymax, xmax],\n'
                 '      "original_text": "...",\n'
                 '      "translated_text": "...",\n'
-                '      "bg_hex": "#E0E0E0",\n'
+                '      "bg_hex": "#FFFFFF",\n'
                 '      "text_hex": "#000000",\n'
                 '      "is_bold": true\n'
                 '    }\n'
@@ -101,6 +104,16 @@ class ImageTranslator:
                 return image_bytes
 
             items = data.get("items", [])
+            # If AI returned more than 12 tiny items (likely a map with village names), skip to avoid ruining the visual
+            if len(items) > 12 and any(len(it.get("original_text", "").split()) <= 2 for it in items):
+                long_items = [it for it in items if len(it.get("original_text", "").split()) > 2]
+                if len(long_items) < len(items) * 0.4:
+                    # Keep only major headings/cards
+                    items = [it for it in items if (it.get("box_2d", [0, 0, 0, 0])[2] - it.get("box_2d", [0, 0, 0, 0])[0]) > 40]
+
+            if not items:
+                return image_bytes
+
             logger.info(f"ImageTranslator: {len(items)} ta matnli blok topildi va tarjima qilinmoqda...")
 
             draw = ImageDraw.Draw(pil_img)
@@ -124,7 +137,7 @@ class ImageTranslator:
                 box_w = max(10, right - left)
                 box_h = max(10, bottom - top)
 
-                trans_text = item.get("translated_text", "")
+                trans_text = item.get("translated_text", "").strip()
                 if not trans_text:
                     continue
 
@@ -139,15 +152,13 @@ class ImageTranslator:
                     text_hex = "#000000"
 
                 # 1. Bounding box foni (Inpainting / Clean Patch)
-                pad_x = 4
-                pad_y = 4
-                draw.rectangle(
-                    [max(0, left - pad_x), max(0, top - pad_y), min(w, right + pad_x), min(h, bottom + pad_y)],
-                    fill=bg_hex
-                )
+                pad_x = 3
+                pad_y = 3
+                rect_coords = [max(0, left - pad_x), max(0, top - pad_y), min(w, right + pad_x), min(h, bottom + pad_y)]
+                draw.rectangle(rect_coords, fill=bg_hex)
 
                 # 2. Matn o'lchamini qutiga moslash
-                font_size = max(11, int(box_h * 0.65))
+                font_size = max(11, int(box_h * 0.60))
 
                 try:
                     font = ImageFont.truetype(font_path, font_size)
@@ -173,7 +184,7 @@ class ImageTranslator:
                     if cur_line:
                         lines.append(" ".join(cur_line))
 
-                    total_text_h = len(lines) * (font_size + 4)
+                    total_text_h = len(lines) * (font_size + 3)
                     if total_text_h > box_h and font_size > 11:
                         font_size = max(9, int(font_size * (box_h / total_text_h) * 0.90))
                         try:
