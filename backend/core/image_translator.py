@@ -2,9 +2,10 @@
 """
 backend.core.image_translator
 -----------------------------
-Gemini Vision (Nano/Flash) orqali rasmli slaydlar, diagrammalar va infografikalar
-ichidagi ruscha/inglizcha matnlarni aniqlab, o'zbek tiliga tarjima qilib,
-rasm grafikasini buzmasdan qayta render qiluvchi modul.
+Gemini Vision orqali rasmli slaydlar, diagrammalar, infografikalar va
+arxitektura sxemalari ichidagi ruscha/inglizcha matnlarni aniqlab,
+o'zbek tiliga tarjima qilib, rasm fonini va grafikasini buzmasdan
+(adaptive pixel inpainting) yuqori sifatda qayta chizuvchi modul.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ import logging
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
+import numpy as np
 
 from google import genai
 from google.genai import types
@@ -35,6 +37,55 @@ class ImageTranslator:
         self.client = genai.Client(api_key=self.api_key) if self.api_key else genai.Client()
         self.model_name = "gemini-3.1-flash-lite"
 
+    @staticmethod
+    def _sample_background_color(rgb_img: Image.Image, left: int, top: int, right: int, bottom: int) -> Tuple[int, int, int]:
+        """
+        Bounding box atrofidagi perimetr piksellarini tahlil qilib,
+        haqiqiy fon rangini (median RGB) aniqlaydi.
+        Oq to'rtburchak (white sticker patch) xatolarini butunlay yo'qotadi.
+        """
+        w, h = rgb_img.size
+        pad = 6
+        samples: List[Tuple[int, int, int]] = []
+        
+        # Yuqori chiziq
+        y_top = max(0, top - pad)
+        for x in range(max(0, left - pad), min(w, right + pad)):
+            samples.append(rgb_img.getpixel((x, y_top))[:3])
+            
+        # Pastki chiziq
+        y_bot = min(h - 1, bottom + pad)
+        for x in range(max(0, left - pad), min(w, right + pad)):
+            samples.append(rgb_img.getpixel((x, y_bot))[:3])
+            
+        # Chap chiziq
+        x_left = max(0, left - pad)
+        for y in range(max(0, top - pad), min(h, bottom + pad)):
+            samples.append(rgb_img.getpixel((x_left, y))[:3])
+            
+        # O'ng chiziq
+        x_right = min(w - 1, right + pad)
+        for y in range(max(0, top - pad), min(h, bottom + pad)):
+            samples.append(rgb_img.getpixel((x_right, y))[:3])
+            
+        if not samples:
+            return (220, 215, 210)
+            
+        r_vals = [s[0] for s in samples]
+        g_vals = [s[1] for s in samples]
+        b_vals = [s[2] for s in samples]
+        
+        return (int(np.median(r_vals)), int(np.median(g_vals)), int(np.median(b_vals)))
+
+    @staticmethod
+    def _get_contrasting_text_color(bg_rgb: Tuple[int, int, int]) -> Tuple[int, int, int]:
+        """
+        Fon rangining yorqinligiga (luminance) qarab to'q kulrang/qora
+        yoki tiniq oq matn rangini avtomatik tanlaydi.
+        """
+        lum = 0.299 * bg_rgb[0] + 0.587 * bg_rgb[1] + 0.114 * bg_rgb[2]
+        return (22, 22, 22) if lum > 130 else (255, 255, 255)
+
     def analyze_and_translate_image(self, image_bytes: bytes, target_script: str = "latin") -> bytes:
         """
         Rasm ichidagi matnlarni aniqlab, ularni o'zbekchaga tarjima qiladi va
@@ -51,16 +102,21 @@ class ImageTranslator:
 
             prompt = (
                 "You are an elite slide, diagram, flowchart, and infographic OCR translator.\n"
-                "Analyze this presentation image carefully.\n\n"
+                "Analyze this presentation image carefully and extract ALL text blocks.\n\n"
                 "RULES:\n"
-                "1. If the image is a GEOGRAPHICAL MAP, satellite photo, or terrain with many city/river place names, "
-                "do NOT extract individual town/village names (maps must remain authentic without white sticker patches). "
-                "Only extract main slide titles, diagram cards, or large section headings if present.\n"
+                "1. If the image is a GEOGRAPHICAL MAP with dozens of tiny village/town labels, "
+                "do NOT extract individual town/village names (maps must remain authentic). "
+                "Only extract main slide title or large diagram legends if present.\n"
                 "2. If the image has NO text (pure photo, artwork without text), return EXACTLY:\n"
                 '{"has_text": false}\n\n'
                 "3. For diagrams, flowcharts, 3D architectural callouts, infocards, and labeled illustrations:\n"
-                "Extract each distinct text box. The bounding box [ymin, xmin, ymax, xmax] (0-1000 scale) must tightly and accurately cover the original text phrase and its card.\n"
-                "Provide the natural Uzbek translation (Latin script), exact background hex color 'bg_hex' of that card/box, and contrasting text hex color 'text_hex'.\n\n"
+                "Extract EACH distinct text unit or callout.\n"
+                "CRITICAL BOUNDING BOX & GROUPING RULES:\n"
+                "- If a callout consists of a header/label (e.g. 'Центральная площадь', 'Жилище', 'Внутренний двор', 'Ров', 'Стена', 'Печь') "
+                "and a descriptive subtext/paragraph underneath, group the header and description into ONE unified bounding box [ymin, xmin, ymax, xmax] "
+                "covering from the very top of the header word down to the very bottom of the last line of description.\n"
+                "- The bounding box (0-1000 scale) MUST GENEROUSLY enclose all letters, words, and lines of that text unit.\n"
+                "- Provide natural, grammatically correct Uzbek translation in Latin script (e.g. 'Turar joy\\nTurar joy maydoni 110 dan 180 m² gacha...').\n\n"
                 "Return JSON in this format:\n"
                 "{\n"
                 '  "has_text": true,\n'
@@ -69,9 +125,7 @@ class ImageTranslator:
                 '      "box_2d": [ymin, xmin, ymax, xmax],\n'
                 '      "original_text": "...",\n'
                 '      "translated_text": "...",\n'
-                '      "bg_hex": "#FFFFFF",\n'
-                '      "text_hex": "#000000",\n'
-                '      "is_bold": true\n'
+                '      "is_header": false\n'
                 '    }\n'
                 '  ]\n'
                 "}"
@@ -79,7 +133,7 @@ class ImageTranslator:
 
             # Convert image to JPEG for Gemini API
             img_buf = io.BytesIO()
-            pil_img.convert("RGB").save(img_buf, format="JPEG", quality=90)
+            pil_img.convert("RGB").save(img_buf, format="JPEG", quality=92)
             img_jpeg_bytes = img_buf.getvalue()
 
             response = self.client.models.generate_content(
@@ -104,11 +158,11 @@ class ImageTranslator:
                 return image_bytes
 
             items = data.get("items", [])
-            # If AI returned more than 12 tiny items (likely a map with village names), skip to avoid ruining the visual
-            if len(items) > 12 and any(len(it.get("original_text", "").split()) <= 2 for it in items):
+            
+            # Xaritalar himoyasi: agar 14 tadan ko'p juda qisqa (1-so'zli) punktlar bo'lsa, xarita rasmini buzmaslik
+            if len(items) > 14 and any(len(it.get("original_text", "").split()) <= 2 for it in items):
                 long_items = [it for it in items if len(it.get("original_text", "").split()) > 2]
-                if len(long_items) < len(items) * 0.4:
-                    # Keep only major headings/cards
+                if len(long_items) < len(items) * 0.35:
                     items = [it for it in items if (it.get("box_2d", [0, 0, 0, 0])[2] - it.get("box_2d", [0, 0, 0, 0])[0]) > 40]
 
             if not items:
@@ -123,19 +177,65 @@ class ImageTranslator:
             roboto_path = str(fonts_dir / "Roboto.ttf")
             font_path = roboto_path if os.path.exists(roboto_path) else "arial.ttf"
 
+            # PASS 1: Erase with adaptive background color and smart multi-line padding
             for item in items:
                 box = item.get("box_2d")
                 if not box or len(box) != 4:
                     continue
 
                 ymin, xmin, ymax, xmax = box
+                orig_text = item.get("original_text", "")
+                orig_lines = [l.strip() for l in orig_text.split("\n") if l.strip()]
+                num_orig_lines = max(1, len(orig_lines))
+
                 left = int((xmin / 1000.0) * w)
                 top = int((ymin / 1000.0) * h)
                 right = int((xmax / 1000.0) * w)
                 bottom = int((ymax / 1000.0) * h)
 
-                box_w = max(10, right - left)
-                box_h = max(10, bottom - top)
+                raw_w = max(10, right - left)
+                raw_h = max(10, bottom - top)
+
+                # Ko'p qatorli matnlarning pastki qatorlari qirqilib qolmasligi uchun kengaytirish
+                if num_orig_lines >= 3 and raw_h < num_orig_lines * 13:
+                    extra_h = (num_orig_lines * 14) - raw_h
+                    bottom = min(h, bottom + extra_h)
+
+                pad_x = max(8, int(raw_w * 0.06))
+                pad_y = max(5, int(raw_h * 0.07))
+
+                erase_left = max(0, left - pad_x)
+                erase_top = max(0, top - pad_y)
+                erase_right = min(w, right + pad_x)
+                erase_bottom = min(h, bottom + pad_y)
+
+                bg_rgb = self._sample_background_color(pil_img, erase_left, erase_top, erase_right, erase_bottom)
+                draw.rectangle([erase_left, erase_top, erase_right, erase_bottom], fill=bg_rgb)
+                
+                item["_erase_box"] = [erase_left, erase_top, erase_right, erase_bottom]
+                item["_bg_rgb"] = bg_rgb
+
+            # Sarlavha va uning ostidagi tavsif qutilari to'qnashuvini oldini olish
+            for i, item_a in enumerate(items):
+                if "_erase_box" not in item_a:
+                    continue
+                box_a = item_a["_erase_box"]
+                for j, item_b in enumerate(items):
+                    if i >= j or "_erase_box" not in item_b:
+                        continue
+                    box_b = item_b["_erase_box"]
+                    if max(box_a[0], box_b[0]) < min(box_a[2], box_b[2]):
+                        if box_a[1] < box_b[1] and box_a[3] >= box_b[1]:
+                            item_b["_erase_box"][1] = box_a[3] + 2
+
+            # PASS 2: Render translated text cleanly onto the inpainted regions
+            for item in items:
+                if "_erase_box" not in item:
+                    continue
+
+                erase_left, erase_top, erase_right, erase_bottom = item["_erase_box"]
+                bg_rgb = item["_bg_rgb"]
+                text_rgb = self._get_contrasting_text_color(bg_rgb)
 
                 trans_text = item.get("translated_text", "").strip()
                 if not trans_text:
@@ -143,40 +243,58 @@ class ImageTranslator:
 
                 trans_text = ensure_script(trans_text, target_script)
 
-                bg_hex = item.get("bg_hex", "#FFFFFF").strip()
-                if not bg_hex.startswith("#") or len(bg_hex) not in (4, 7):
-                    bg_hex = "#FFFFFF"
-                
-                text_hex = item.get("text_hex", "#000000").strip()
-                if not text_hex.startswith("#") or len(text_hex) not in (4, 7):
-                    text_hex = "#000000"
+                box_w = max(10, erase_right - erase_left)
+                box_h = max(10, erase_bottom - erase_top)
+                is_header = item.get("is_header", False) or len(trans_text.split()) <= 2
 
-                # 1. Bounding box foni (Inpainting / Clean Patch)
-                pad_x = 3
-                pad_y = 3
-                rect_coords = [max(0, left - pad_x), max(0, top - pad_y), min(w, right + pad_x), min(h, bottom + pad_y)]
-                draw.rectangle(rect_coords, fill=bg_hex)
-
-                # 2. Matn o'lchamini qutiga moslash
-                font_size = max(11, int(box_h * 0.60))
+                # Adaptiv shrift o'lchami
+                if is_header:
+                    font_size = max(10, min(16, int(box_h * 0.65)))
+                else:
+                    word_count = len(trans_text.split())
+                    if word_count > 15:
+                        font_size = max(8, min(11, int(box_h * 0.12)))
+                    elif word_count > 6:
+                        font_size = max(8, min(12, int(box_h * 0.22)))
+                    else:
+                        font_size = max(9, min(13, int(box_h * 0.45)))
 
                 try:
                     font = ImageFont.truetype(font_path, font_size)
                 except Exception:
-                    try:
-                        font = ImageFont.truetype("arial.ttf", font_size)
-                    except Exception:
-                        font = ImageFont.load_default()
+                    font = ImageFont.load_default()
 
-                try:
-                    words = trans_text.split()
+                # Matnni qatorlarga ajratish va qutiga moslash
+                words = trans_text.split()
+                lines = []
+                cur_line = []
+                for word in words:
+                    test_line = " ".join(cur_line + [word])
+                    bbox = draw.textbbox((0, 0), test_line, font=font)
+                    if (bbox[2] - bbox[0]) <= (box_w - 4) or not cur_line:
+                        cur_line.append(word)
+                    else:
+                        lines.append(" ".join(cur_line))
+                        cur_line = [word]
+                if cur_line:
+                    lines.append(" ".join(cur_line))
+
+                line_h = font_size + 2
+                total_h = len(lines) * line_h
+                if total_h > box_h and font_size > 7:
+                    scale = box_h / total_h
+                    font_size = max(7, int(font_size * scale * 0.95))
+                    try:
+                        font = ImageFont.truetype(font_path, font_size)
+                    except Exception:
+                        pass
+                    line_h = font_size + 2
                     lines = []
                     cur_line = []
-                    
                     for word in words:
                         test_line = " ".join(cur_line + [word])
                         bbox = draw.textbbox((0, 0), test_line, font=font)
-                        if (bbox[2] - bbox[0]) <= box_w or not cur_line:
+                        if (bbox[2] - bbox[0]) <= (box_w - 4) or not cur_line:
                             cur_line.append(word)
                         else:
                             lines.append(" ".join(cur_line))
@@ -184,26 +302,17 @@ class ImageTranslator:
                     if cur_line:
                         lines.append(" ".join(cur_line))
 
-                    total_text_h = len(lines) * (font_size + 3)
-                    if total_text_h > box_h and font_size > 11:
-                        font_size = max(9, int(font_size * (box_h / total_text_h) * 0.90))
-                        try:
-                            font = ImageFont.truetype(font_path, font_size)
-                        except Exception:
-                            pass
+                start_y = erase_top + max(0, (box_h - (len(lines) * line_h)) // 2)
 
-                    line_h = font_size + 3
-                    start_y = top + max(0, (box_h - (len(lines) * line_h)) // 2)
-
-                    for l_idx, line_str in enumerate(lines):
-                        line_bbox = draw.textbbox((0, 0), line_str, font=font)
-                        line_w = line_bbox[2] - line_bbox[0]
-                        line_x = left + max(0, (box_w - line_w) // 2)
-                        line_y = start_y + l_idx * line_h
-                        draw.text((line_x, line_y), line_str, fill=text_hex, font=font)
-
-                except Exception as draw_err:
-                    draw.text((left, top), trans_text, fill=text_hex, font=font)
+                for l_idx, line_str in enumerate(lines):
+                    line_bbox = draw.textbbox((0, 0), line_str, font=font)
+                    line_w = line_bbox[2] - line_bbox[0]
+                    if is_header or len(lines) == 1:
+                        line_x = erase_left + max(0, (box_w - line_w) // 2)
+                    else:
+                        line_x = erase_left + 2
+                    line_y = start_y + l_idx * line_h
+                    draw.text((line_x, line_y), line_str, fill=text_rgb, font=font)
 
             out_buf = io.BytesIO()
             pil_img.convert("RGB").save(out_buf, format="PNG")
