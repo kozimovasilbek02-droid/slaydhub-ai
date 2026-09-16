@@ -41,6 +41,56 @@ def sanitize_text(text: str) -> str:
     return t.strip()
 
 
+DOMAIN_KEYWORDS: Dict[str, List[str]] = {
+    "Tibbiyot, anatomiya, farmatsevtika va sog'liqni saqlash": [
+        "tibbiyot", "meditsina", "vrach", "kasallik", "shifoxona", "infeksiya", "sanpin",
+        "immunitet", "bemor", "terapiya", "jarrohlik", "doctor", "medicine", "hospital", "disease", "anatomy"
+    ],
+    "Tarix, arxeologiya va ijtimoiy fanlar": [
+        "tarix", "history", "urush", "sulola", "asr", "davr", "neolit", "paleolit",
+        "madaniyat", "arxeologiya", "podsholik", "imperiya", "inqilob", "revolution"
+    ],
+    "Iqtisodiyot, moliya, bank va investitsiyalar": [
+        "iqtisod", "moliya", "bank", "investitsiya", "kredit", "soliq", "valyuta",
+        "budget", "finance", "economy", "investment", "audit", "buxgalteriya", "accounting"
+    ],
+    "Axborot texnologiyalari, IT, AI va dasturlash": [
+        "axborot", "texnologiya", "dasturlash", "sun'iy intellekt", "ai", "kompyuter",
+        "it", "algoritm", "server", "software", "hardware", "data", "tarmoq", "kiberxavfsizlik"
+    ],
+    "Falsafa, dinshunoslik, axloq va ma'naviyat": [
+        "falsafa", "din", "islom", "buddizm", "zardushtiylik", "mutafakkir",
+        "falsafiy", "ahloq", "ma'naviyat", "hikmat", "philosophy", "religion", "ethics"
+    ],
+    "Biologiya, ekologiya, tabiat va geografiya": [
+        "biologiya", "tabiat", "ekologiya", "hayvonot", "o'simlik", "geografiya",
+        "iqlim", "yer", "sayyora", "nature", "biology", "geography", "environment"
+    ],
+    "Biznes, marketing, menejment va startaplar": [
+        "biznes", "marketing", "menejment", "startap", "reklama", "strategiya",
+        "swot", "porter", "hr", "kadrlar", "boshqaruv", "savdo", "business", "management"
+    ],
+    "Huquqshunoslik, qonunchilik va davlat boshqaruvi": [
+        "huquq", "qonun", "sud", "konstitutsiya", "jinoyat", "fuqarolik",
+        "shartnoma", "adliya", "law", "legal", "court", "justice"
+    ],
+    "Pedagogika, maktab ta'limi va metodika": [
+        "ta'lim", "pedagogika", "maktab", "metodika", "o'qitish", "dars",
+        "sinf", "education", "school", "teaching", "pedagogy"
+    ]
+}
+
+def detect_domain(sample_text: str) -> str:
+    """Taqdimot matni yoki sarlavhasidan tegishli ilmiy/biznes sohani avtomatik aniqlaydi."""
+    if not sample_text:
+        return "general"
+    low = sample_text.lower()
+    for domain_name, kw_list in DOMAIN_KEYWORDS.items():
+        if any(kw in low for kw in kw_list):
+            return domain_name
+    return "Umumiy ta'limiy va ilmiy taqdimot"
+
+
 class TranslationError(RuntimeError):
     """Tarjima xizmati xatolik qaytarganda."""
 
@@ -79,6 +129,11 @@ class GeminiTranslator:
             if stats is not None:
                 stats.update(total=0, failed=0, failed_ids=[])
             return []
+
+        # Agar domain ko'rsatilmagan bo'lsa, slayd matnlaridan avtomatik aniqlash
+        if domain in ("general", "", None):
+            combined_sample = " ".join([it.get("original_text") or it.get("text", "") for it in items[:15]])
+            domain = detect_domain(combined_sample)
 
         batches = [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
 

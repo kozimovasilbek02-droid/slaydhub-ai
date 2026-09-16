@@ -35,12 +35,74 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from backend.core.pptx_processor import PPTXProcessor
+from backend.core.gemini_translator import GeminiTranslator
+
 TEMP_STORAGE = os.path.abspath(os.path.join(parent_dir, "temp_sessions"))
 os.makedirs(TEMP_STORAGE, exist_ok=True)
 OUTPUT_BASE = os.path.join(parent_dir, "output", "presentations")
 os.makedirs(OUTPUT_BASE, exist_ok=True)
 UPLOAD_BASE = os.path.join(parent_dir, "output", "uploads")
 os.makedirs(UPLOAD_BASE, exist_ok=True)
+
+# ─────────────────────────────────────────────────────────
+# 0. SYSTEM HEALTH & DIRECT API
+# ─────────────────────────────────────────────────────────
+@app.api_route("/", methods=["GET", "HEAD"])
+@app.api_route("/health", methods=["GET", "HEAD"])
+@app.api_route("/api/v1/health", methods=["GET", "HEAD"])
+async def health_check():
+    return {
+        "status": "ok",
+        "service": "SlideTranslate AI / SlideAI Studio",
+        "version": "2.5.0",
+        "uptime": "24/7 active"
+    }
+
+@app.post("/api/v1/translate")
+async def translate_v1_direct(
+    file: UploadFile = File(...),
+    target_lang: str = Form("uz-Latn"),
+    api_key: Optional[str] = Form(None),
+    domain: str = Form("general"),
+    auto_fit: bool = Form(True)
+):
+    if not file.filename or not file.filename.lower().endswith((".pptx", ".potx")):
+        raise HTTPException(status_code=400, detail="Faqat .pptx formatidagi fayllar qabul qilinadi.")
+
+    target_script = "cyrillic" if target_lang.lower() in ["uz-cyrl", "cyrillic", "kirill"] else "latin"
+    session_id = str(uuid.uuid4())
+    in_path = os.path.join(TEMP_STORAGE, f"{session_id}_{file.filename}")
+    with open(in_path, "wb") as f:
+        f.write(await file.read())
+
+    # Extract presentation data
+    extracted = PPTXProcessor.extract_presentation_data(in_path)
+    all_items = [it for s in extracted.get("slides", []) for it in s.get("items", [])]
+
+    translator = GeminiTranslator(api_key=api_key)
+    stats: Dict[str, Any] = {}
+    if all_items:
+        translated_results = translator.translate_items_batch(
+            items=all_items,
+            target_script=target_script,
+            domain=domain,
+            stats=stats
+        )
+        trans_map = {r["id"]: r["translated_text"] for r in translated_results}
+    else:
+        trans_map = {}
+
+    out_name = f"translated_{file.filename}"
+    out_path = os.path.join(OUTPUT_BASE, out_name)
+    PPTXProcessor.apply_translations_and_export(
+        original_pptx_path=in_path,
+        translations_map=trans_map,
+        output_pptx_path=out_path,
+        auto_fit=auto_fit,
+        target_script=target_script
+    )
+    return FileResponse(out_path, filename=out_name)
 
 # ─────────────────────────────────────────────────────────
 # 1. FOLDER DISCOVERY & MANAGEMENT

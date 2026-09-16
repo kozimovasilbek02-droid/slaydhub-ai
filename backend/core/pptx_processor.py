@@ -143,7 +143,26 @@ class PPTXProcessor:
         combined = " ".join(texts).lower()
         if not combined.strip():
             return False
-        return any(re.search(pat, combined) for pat in PPTXProcessor.AD_SLIDE_PATTERNS)
+
+        # 1. Aniq reklama va resurs shablonlari
+        for pat in PPTXProcessor.AD_SLIDE_PATTERNS:
+            if re.search(pat, combined, re.I):
+                return True
+
+        # 2. Resurslar, shriftlar va ranglar kombinatsiyasi (shablon sahifasi)
+        has_shrift = any(w in combined for w in ["shrift", "font", "typography"])
+        has_rang = any(w in combined for w in ["rang", "color", "palette"])
+        has_resurs = any(w in combined for w in ["resurs", "resource", "canva", "slidescarnival", "slidesgo"])
+        if (has_shrift and has_rang) and has_resurs:
+            return True
+
+        # 3. Minnatdorchilik va foto kreditlari kombinatsiyasi
+        has_credit = any(w in combined for w in ["minnatdorchilik", "credits", "tashakkur", "acknowledgement", "attribution"])
+        has_provider = any(w in combined for w in ["pexels", "pixabay", "unsplash", "freepik", "flaticon", "slidescarnival", "slidesgo"])
+        if has_credit and has_provider:
+            return True
+
+        return False
 
     @staticmethod
     def _delete_slide(prs: Presentation, index: int):
