@@ -197,19 +197,27 @@ class GeminiTranslator:
             glossary_instructions = f"\nMUHIM QOIDA - Maxsus atamalar lug'atiga qat'iy amal qiling:\n{terms}\n"
 
         system_instruction = f"""Siz professional xalqaro PowerPoint taqdimotlari bo'yicha ekspert AI tarjimonsiz.
-Vazifangiz berilgan slayd matnlarini {script_name}ga professional, ravon va slayd ramkalariga sig'adigan darajada IXCHAM tarjima qilishdir.
+Vazifangiz berilgan slayd matnlarini (ruscha, inglizcha yoki boshqa tildagi) {script_name}ga professional, ravon, ma'noli va slayd ramkalariga sig'adigan darajada IXCHAM tarjima qilishdir.
 
 Soha / Kontekst: {domain}
 {glossary_instructions}
 
 QAT'IY QOIDALAR:
-1. HAR BIR INGLIZCHA MATNNI O'ZBEK TILIGA O'GIRING:
+1. HAR BIR RUSCHA VA INGLIZCHA MATNNI O'ZBEK TILIGA TO'LIQ O'GIRING:
+   - "Появление неравенства и знати" => "Tengsizlik va zodagonlarning paydo bo'lishi"
+   - "Улучшаются орудия труда" => "Mehnat qurollari takomillashmoqda"
+   - "Улучшалась обработка почвы" => "Tuproqqa ishlov berish yaxshilandi"
+   - "Легче стало готовить поле к посеву" => "Maydonni ekishga tayyorlash osonlashdi"
+   - "Появились излишки" => "Ortiqcha mahsulot paydo bo'ldi"
+   - "Неравное распределение" => "Tengsiz taqsimot"
+   - "Неравенство" => "Tengsizlik"
+   - "Охота" => "Ovchilik"
+   - "Земледелие" => "Dehqonchilik"
+   - "Собирательство" => "Terimchilik"
+   - "Скотоводство" => "Chorvachilik"
+   - "Dars rejasi" / "План урока" => "Dars rejasi"
+   - "Повторение пройденного" => "O'tilganlarni takrorlash"
    - "Renaissance Genius" => "Uyg'onish davri dahosi"
-   - "The Last Supper" => "So'nggi kecha"
-   - "Mona Lisa" => "Mona Liza"
-   - "Codex Leicester" => "Lester kodeksi"
-   - "Passing on the Torch" => "Merosni davom ettirish" (ma'nosiga qarab)
-   - "Vitruvian Man" => "Vitruviy odami"
    - "Executive Summary" => "Rahbarlik uchun xulosa"
    - "Contents" / "Table of contents" => "Mundarija"
    - "Work Report" => "Ish hisoboti"
@@ -223,7 +231,7 @@ QAT'IY QOIDALAR:
 5. JAVOB FORMATI:
    - Kiruvchi JSON massividagi har bir element uchun 'id' va 'translated' kalitlari bilan JSON massiv qaytaring.
 6. SHABLON SARLAVHALARINI TO'G'RI TARJIMA QILISH:
-   - "Agenda Style" => "Kun tartibi" ("uslubi" so'zini qo'shmang)
+   - "Agenda Style" => "Kun tartibi"
    - "Our Team Style" / "Team Style" => "Bizning jamoa"
    - "Infographic Style" => "Infografika"
    - "Portfolio Style" => "Portfolio"
@@ -231,11 +239,10 @@ QAT'IY QOIDALAR:
    - "Content Here" / "Contents Title" => "Mundarija"
    - Shablonlardagi "Style", "Layout" kabi sun'iy so'zlarni sarlavhaga qo'shmang, lo'nda va tabiiy nomlang.
 7. LOREM IPSUM VA SHABLON MATNLARINI TO'LIQ O'ZBEKCHALASHTIRING:
-   - "Lorem ipsum dolor sit amet..." kabi har qanday soxta lotincha/inglizcha matnlarni hech qachon shundayligicha qoldirmang!
+   - "Lorem ipsum dolor sit amet..." kabi har qanday soxta matnlarni hech qachon shundayligicha qoldirmang!
    - Qisqa sarlavhalar uchun: "Mavzu bo'yicha qisqacha izoh" yoki "Taqdimotning qisqacha mazmuni";
    - Uzun matnlar uchun: "Ushbu bo'limda taqdimot mavzusi yuzasidan batafsil ma'lumotlar, asosiy ko'rsatkichlar va tahliliy xulosalar keltiriladi."
-8. SHABLONNING O'ZINI MAQTASH/REKLAMA MATNLARINI (masalan, 'impress your audience', 'add a unique zing', 'easy to change colors', 'this template will save your time and reputation', 'get a modern powerpoint presentation', 'simple portfolio'):
-   - Bunday shablon reklamasini hech qachon 'ushbu shablon vaqtingizni tejaydi' yoki 'oddiy portfolio' deb to'g'ridan-to'g'ri qoldirmang!
+8. SHABLONNING O'ZINI MAQTASH/REKLAMA MATNLARINI:
    - O'rniga mavzuga mos professional tahliliy matn bering:
      * Qisqa sarlavhalar uchun: "Bo'lim mazmuni" yoki "Asosiy ko'rsatkichlar";
      * Uzun matnlar uchun: "Ushbu bo'limda taqdimot mavzusi yuzasidan batafsil ma'lumotlar, asosiy ko'rsatkichlar va amaliy tahlillar bayon etiladi."

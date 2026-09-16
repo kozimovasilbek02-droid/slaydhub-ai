@@ -50,15 +50,15 @@ class ImageTranslator:
                 return image_bytes
 
             prompt = (
-                "You are an elite slide and diagram OCR translator.\n"
-                "Analyze this presentation image/diagram carefully.\n"
-                "Does this image contain diagrams, flowcharts, tables, infocards, titles, or labels in Russian, English, or non-Uzbek text?\n\n"
-                "If it has NO text (only pure nature photo, person, icon, pattern, abstract background), return EXACTLY JSON:\n"
+                "You are an elite slide, diagram, flowchart, and infographic OCR translator.\n"
+                "Analyze this presentation image carefully.\n"
+                "Does this image contain text, diagram labels, flowchart boxes, infocards, titles, or annotations in Russian, English, or non-Uzbek text?\n\n"
+                "If it has NO text (pure photo without text, pattern, icon without words), return EXACTLY:\n"
                 '{"has_text": false}\n\n'
-                "If it HAS text/diagram labels to translate into Uzbek (Latin script):\n"
-                "Extract each distinct text box with its bounding box [ymin, xmin, ymax, xmax] on a 0-1000 scale,\n"
-                "the original text, its natural Uzbek translation (Latin script), background hex color of that box, and text hex color.\n\n"
-                "Return JSON matching this schema:\n"
+                "If it HAS text/labels to translate into Uzbek (Latin script):\n"
+                "Extract each distinct text phrase. The bounding box [ymin, xmin, ymax, xmax] must be 0-1000 scale and MUST FULLY AND GENEROUSLY COVER the original text phrase and its underlying box.\n"
+                "Provide the natural Uzbek translation (Latin script, uppercase if original is uppercase), background hex color 'bg_hex' of that specific box/label, and text hex color 'text_hex'.\n\n"
+                "Return JSON in this format:\n"
                 "{\n"
                 '  "has_text": true,\n'
                 '  "items": [\n'
@@ -66,8 +66,8 @@ class ImageTranslator:
                 '      "box_2d": [ymin, xmin, ymax, xmax],\n'
                 '      "original_text": "...",\n'
                 '      "translated_text": "...",\n'
-                '      "bg_hex": "#2B579A",\n'
-                '      "text_hex": "#FFFFFF",\n'
+                '      "bg_hex": "#E0E0E0",\n'
+                '      "text_hex": "#000000",\n'
                 '      "is_bold": true\n'
                 '    }\n'
                 '  ]\n'
@@ -104,8 +104,11 @@ class ImageTranslator:
             logger.info(f"ImageTranslator: {len(items)} ta matnli blok topildi va tarjima qilinmoqda...")
 
             draw = ImageDraw.Draw(pil_img)
-            font_path = "arial.ttf"
-            font_bold_path = "arialbd.ttf"
+            
+            # Local font discovery
+            fonts_dir = Path(__file__).resolve().parent.parent / "fonts"
+            roboto_path = str(fonts_dir / "Roboto.ttf")
+            font_path = roboto_path if os.path.exists(roboto_path) else "arial.ttf"
 
             for item in items:
                 box = item.get("box_2d")
@@ -135,21 +138,19 @@ class ImageTranslator:
                 if not text_hex.startswith("#") or len(text_hex) not in (4, 7):
                     text_hex = "#000000"
 
-                # 1. Bounding box foni (Inpainting / Patch)
-                pad_x = 2
-                pad_y = 2
+                # 1. Bounding box foni (Inpainting / Clean Patch)
+                pad_x = 4
+                pad_y = 4
                 draw.rectangle(
                     [max(0, left - pad_x), max(0, top - pad_y), min(w, right + pad_x), min(h, bottom + pad_y)],
                     fill=bg_hex
                 )
 
                 # 2. Matn o'lchamini qutiga moslash
-                font_size = max(10, int(box_h * 0.60))
-                is_bold = item.get("is_bold", False)
-                font_to_use = font_bold_path if is_bold else font_path
+                font_size = max(11, int(box_h * 0.65))
 
                 try:
-                    font = ImageFont.truetype(font_to_use, font_size)
+                    font = ImageFont.truetype(font_path, font_size)
                 except Exception:
                     try:
                         font = ImageFont.truetype("arial.ttf", font_size)
@@ -174,9 +175,9 @@ class ImageTranslator:
 
                     total_text_h = len(lines) * (font_size + 4)
                     if total_text_h > box_h and font_size > 11:
-                        font_size = max(9, int(font_size * (box_h / total_text_h) * 0.88))
+                        font_size = max(9, int(font_size * (box_h / total_text_h) * 0.90))
                         try:
-                            font = ImageFont.truetype(font_to_use, font_size)
+                            font = ImageFont.truetype(font_path, font_size)
                         except Exception:
                             pass
 

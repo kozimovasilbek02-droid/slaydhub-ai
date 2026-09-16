@@ -551,10 +551,7 @@ class PPTXProcessor:
 
         prs = safe_load_presentation(original_pptx_path)
 
-        if clean_watermarks:
-            PPTXProcessor.clean_presentation_watermarks(prs)
-
-        # 1. Matnli shakllar va SmartArt diagrammalarini tarjima qilish
+        # 1. Matnli shakllar va SmartArt diagrammalarini tarjima qilish (Asl slayd indekslari bo'yicha)
         for s_idx, slide in enumerate(prs.slides, start=1):
             PPTXProcessor._apply_to_shapes_recursive(
                 shapes=slide.shapes,
@@ -569,20 +566,32 @@ class PPTXProcessor:
         # 2. Rasm shaklidagi slaydlar va diagramma rasmlarini AI (Gemini Vision / Nano) orqali tarjima qilish
         try:
             img_translator = ImageTranslator()
+            image_cache: Dict[bytes, bytes] = {}
             for slide in prs.slides:
-                for sh in list(slide.shapes):
-                    if getattr(sh, 'shape_type', None) == MSO_SHAPE_TYPE.PICTURE:
-                        try:
-                            if hasattr(sh, 'image') and sh.image and sh.image.blob:
-                                orig_blob = sh.image.blob
-                                if len(orig_blob) > 4000:
+                # Slayd ichidagi barcha rasmlarni a:blip orqali to'liq qamrab olish
+                blip_rIds = slide._element.xpath('.//a:blip/@r:embed')
+                for rId in set(blip_rIds):
+                    try:
+                        img_part = slide.part.related_part(rId)
+                        if hasattr(img_part, 'blob') and img_part.blob:
+                            orig_blob = img_part.blob
+                            if len(orig_blob) > 2000:
+                                if orig_blob in image_cache:
+                                    new_blob = image_cache[orig_blob]
+                                else:
                                     new_blob = img_translator.analyze_and_translate_image(orig_blob, target_script=target_script)
-                                    if new_blob and new_blob != orig_blob:
-                                        sh.image._part._blob = new_blob
-                        except Exception:
-                            pass
+                                    image_cache[orig_blob] = new_blob
+                                
+                                if new_blob and new_blob != orig_blob:
+                                    img_part._blob = new_blob
+                    except Exception:
+                        pass
         except Exception as img_err:
             print(f"[PPTXProcessor] Rasm tarjimasida ogohlantirish: {img_err}")
+
+        # 3. Reklama, suvbelgilar va resurs slaydlarini tarjima yakunlangach tozalash
+        if clean_watermarks:
+            PPTXProcessor.clean_presentation_watermarks(prs)
 
         # 1-slayd sarlavhasini kafolatlash (agar shablon sarlavhasiz yoki placeholder bo'lsa)
         if len(prs.slides) > 0 and presentation_title:
@@ -683,6 +692,7 @@ class PPTXProcessor:
                                     trans = translations_map.get(item_id)
                                     if trans:
                                         PPTXProcessor._set_paragraph_text_safe(p, ensure_script(sanitize_control_chars(trans), target_script), auto_fit=auto_fit, shape=shape)
+                            PPTXProcessor._harmonize_text_frame_typography(cell.text_frame)
                 continue
 
             # 3. Regular Shape / TextBox
@@ -701,6 +711,7 @@ class PPTXProcessor:
                         trans = translations_map.get(item_id)
                         if trans:
                             PPTXProcessor._set_paragraph_text_safe(p, ensure_script(sanitize_control_chars(trans), target_script), auto_fit=auto_fit, shape=shape)
+                PPTXProcessor._harmonize_text_frame_typography(tf)
 
             # 4. Native Charts
             if shape.has_chart:
@@ -738,6 +749,48 @@ class PPTXProcessor:
                                 t_nodes[0].text = safe_trans
                                 for t_extra in t_nodes[1:]:
                                     t_extra.text = ""
+            except Exception:
+                pass
+
+    @staticmethod
+    def _harmonize_text_frame_typography(tf):
+        """
+        Matn qutisi (Text Frame) ichidagi barcha bandlar (ro'yxat va paragraflar)
+        uchun yagona va bir xil shrift o'lchamini va intervalini ta'minlaydi.
+        """
+        non_empty = [p for p in tf.paragraphs if p.text and p.text.strip()]
+        if len(non_empty) <= 1:
+            return
+
+        sizes = []
+        fonts = []
+        for p in non_empty:
+            for r in p.runs:
+                if r.font and r.font.size and r.text and len(r.text.strip()) > 2:
+                    try:
+                        sizes.append(r.font.size.pt)
+                    except Exception:
+                        pass
+                if r.font and r.font.name:
+                    fonts.append(r.font.name)
+
+        if not sizes:
+            return
+
+        # Eng mos keluvchi (eng kichik yoki barqaror) shrift o'lchamini tanlash
+        target_size_pt = min(sizes)
+        target_font_name = max(set(fonts), key=fonts.count) if fonts else "Calibri"
+
+        for p in non_empty:
+            try:
+                p.font.size = Pt(target_size_pt)
+                p.font.name = target_font_name
+                p.space_after = Pt(6)
+                p.line_spacing = 1.15
+                for r in p.runs:
+                    if r.font:
+                        r.font.size = Pt(target_size_pt)
+                        r.font.name = target_font_name
             except Exception:
                 pass
 
@@ -781,16 +834,27 @@ class PPTXProcessor:
             else:
                 safe_text = "Ushbu bo'limda taqdimot mavzusi yuzasidan batafsil ma'lumotlar, asosiy ko'rsatkichlar va tahliliy xulosalar keltiriladi."
 
+        # Matn tanasining asl parametrlarini olish uchun body_run'ni aniqlash
+        body_run = None
+        for r in paragraph.runs:
+            if r.text and len(r.text.strip()) > 3:
+                body_run = r
+                break
+        if not body_run and paragraph.runs:
+            body_run = paragraph.runs[-1]
+        if not body_run and paragraph.runs:
+            body_run = paragraph.runs[0]
+
         first_run = paragraph.runs[0]
-        orig_font_name = first_run.font.name if (first_run.font and first_run.font.name) else None
-        orig_font_size = first_run.font.size if (first_run.font and first_run.font.size) else None
-        orig_bold = first_run.font.bold if (first_run.font and first_run.font.bold is not None) else None
-        orig_italic = first_run.font.italic if (first_run.font and first_run.font.italic is not None) else None
+        orig_font_name = body_run.font.name if (body_run.font and body_run.font.name) else (first_run.font.name if first_run.font else None)
+        orig_font_size = body_run.font.size if (body_run.font and body_run.font.size) else (first_run.font.size if first_run.font else None)
+        orig_bold = body_run.font.bold if (body_run.font and body_run.font.bold is not None) else None
+        orig_italic = body_run.font.italic if (body_run.font and body_run.font.italic is not None) else None
         orig_color = None
         try:
-            if first_run.font and first_run.font.color and first_run.font.color.type is not None:
-                if first_run.font.color.rgb:
-                    orig_color = first_run.font.color.rgb
+            if body_run.font and body_run.font.color and body_run.font.color.type is not None:
+                if body_run.font.color.rgb:
+                    orig_color = body_run.font.color.rgb
         except Exception:
             pass
 
