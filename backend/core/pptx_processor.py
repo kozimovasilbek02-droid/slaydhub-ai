@@ -793,15 +793,21 @@ class PPTXProcessor:
         v_bars = []
         for sh in slide.shapes:
             try:
-                if sh.height >= sh_h * 0.65 and sh.width <= sw * 0.25 and sh.shape_type in [MSO_SHAPE_TYPE.AUTO_SHAPE, MSO_SHAPE_TYPE.FREEFORM]:
-                    v_bars.append(sh)
+                sh_w = getattr(sh, 'width', None)
+                sh_h_val = getattr(sh, 'height', None)
+                if sh_w is not None and sh_h_val is not None:
+                    if sh_h_val >= sh_h * 0.65 and sh_w <= sw * 0.25 and getattr(sh, 'shape_type', None) in [MSO_SHAPE_TYPE.AUTO_SHAPE, MSO_SHAPE_TYPE.FREEFORM]:
+                        v_bars.append(sh)
             except Exception:
                 pass
 
-        all_tbs = [sh for sh in slide.shapes if sh.has_text_frame]
+        all_tbs = [sh for sh in slide.shapes if getattr(sh, 'has_text_frame', False)]
 
         for tb in all_tbs:
-            tf = tb.text_frame
+            try:
+                tf = tb.text_frame
+            except Exception:
+                continue
             txt = tf.text.strip()
             if not txt:
                 continue
@@ -819,29 +825,50 @@ class PPTXProcessor:
             first_p = tf.paragraphs[0]
             size_pt = 16.0
             if first_p.runs and first_p.runs[0].font and first_p.runs[0].font.size:
-                size_pt = first_p.runs[0].font.size.pt
+                try:
+                    size_pt = first_p.runs[0].font.size.pt
+                except Exception:
+                    pass
+
+            tb_left = getattr(tb, 'left', None)
+            tb_top = getattr(tb, 'top', None)
+            tb_w = getattr(tb, 'width', None)
+            tb_h = getattr(tb, 'height', None)
+            if tb_left is None or tb_top is None or tb_w is None or tb_h is None:
+                continue
 
             # A. Gorizontal ustun to'qnashuvini tuzatish (Sarlavha vertikal chiziq/grafika ustiga chiqib qolmasligi)
             for bar in v_bars:
-                bar_right = bar.left + bar.width
+                b_left = getattr(bar, 'left', None)
+                b_w = getattr(bar, 'width', None)
+                if b_left is None or b_w is None:
+                    continue
+                bar_right = b_left + b_w
                 # Agar sarlavha chiziqdan oldin yoki ichida boshlanib, o'ng tomonga cho'zilgan bo'lsa
-                if tb.top < sh_h * 0.35 and tb.left < bar_right and (tb.left + tb.width) > bar_right + Inches(1.5):
+                if tb_top < sh_h * 0.35 and tb_left < bar_right and (tb_left + tb_w) > bar_right + Inches(1.5):
                     # O'ng tarafdagi kontent bloklarini topamiz
-                    right_shapes = [s for s in slide.shapes if s.left is not None and s.left >= bar_right and id(s) != id(tb)]
+                    right_shapes = [s for s in slide.shapes if getattr(s, 'left', None) is not None and s.left >= bar_right and id(s) != id(tb)]
                     if right_shapes:
                         min_right = min(s.left for s in right_shapes)
                         tb.left = min_right
                         tb.width = max(Inches(3), sw - tb.left - Inches(0.4))
+                        tb_left = tb.left
+                        tb_w = tb.width
 
             # B. Vertikal to'qnashuv (yuqoridagi rasm/ikonka bilan ustma-ust tushish)
             shapes_above = []
             for other in slide.shapes:
-                if id(other) != id(tb) and other.left is not None and other.top is not None:
-                    # Gorizontal kesishish
-                    if not (other.left + other.width <= tb.left or other.left >= tb.left + tb.width):
-                        other_bottom = other.top + other.height
-                        if other_bottom <= tb.top + Inches(0.2) and (tb.top - other_bottom) < Inches(0.8):
-                            shapes_above.append(other)
+                if id(other) != id(tb):
+                    o_left = getattr(other, 'left', None)
+                    o_top = getattr(other, 'top', None)
+                    o_w = getattr(other, 'width', None)
+                    o_h = getattr(other, 'height', None)
+                    if o_left is not None and o_top is not None and o_w is not None and o_h is not None:
+                        # Gorizontal kesishish
+                        if not (o_left + o_w <= tb_left or o_left >= tb_left + tb_w):
+                            other_bottom = o_top + o_h
+                            if other_bottom <= tb_top + Inches(0.2) and (tb_top - other_bottom) < Inches(0.8):
+                                shapes_above.append(other)
 
             if shapes_above:
                 tf.vertical_anchor = MSO_ANCHOR.TOP

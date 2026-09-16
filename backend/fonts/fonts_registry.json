@@ -137,5 +137,136 @@
     "name": "+mj-lt",
     "type": "system",
     "file": null
+  },
+  "arial black": {
+    "name": "Arial Black",
+    "type": "custom",
+    "file": "Arial_Black.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=8AttGsyyIJeeQk-K7cT5V6nUqR_yBTos&skey=f5c444da86865f17&v=v19",
+    "size_kb": 20.32
+  },
+  "adobe song std l": {
+    "name": "Adobe Song Std L",
+    "type": "system",
+    "file": null
+  },
+  "+mn-lt": {
+    "name": "+mn-lt",
+    "type": "system",
+    "file": null
+  },
+  "adobe fan heiti std b": {
+    "name": "Adobe Fan Heiti Std B",
+    "type": "system",
+    "file": null
+  },
+  "candara": {
+    "name": "Candara",
+    "type": "custom",
+    "file": "Candara.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=ZGjXol5EQIAt4qtKWCpbUBFeCDo&skey=74ff4129a25a060b&v=v12",
+    "size_kb": 28.12
+  },
+  "constantia": {
+    "name": "Constantia",
+    "type": "custom",
+    "file": "Constantia.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=L0x4DF8glV8Z-BmfyLPDXS9si1C0V7o&skey=d5629a58df22c8b4&v=v20",
+    "size_kb": 43.47
+  },
+  "gabriola": {
+    "name": "Gabriola",
+    "type": "system",
+    "file": null
+  },
+  "monotype corsiva": {
+    "name": "Monotype Corsiva",
+    "type": "system",
+    "file": null
+  },
+  "book antiqua": {
+    "name": "Book Antiqua",
+    "type": "custom",
+    "file": "Book_Antiqua.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=S6u6w4hCXyjDv1h-L2beaUb46v01xPZQ1g&skey=53198ebebffbde2&v=v11",
+    "size_kb": 25.65
+  },
+  "estrangelo edessa": {
+    "name": "Estrangelo Edessa",
+    "type": "system",
+    "file": null
+  },
+  "segoe print": {
+    "name": "Segoe Print",
+    "type": "system",
+    "file": null
+  },
+  "mistral": {
+    "name": "Mistral",
+    "type": "system",
+    "file": null
+  },
+  "bookman old style": {
+    "name": "Bookman Old Style",
+    "type": "custom",
+    "file": "Bookman_Old_Style.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=MjQcmj92u_H-ux7vrpbgHLHRzMYMlfBgInch27Te&skey=525c12327fbbcec7&v=v10",
+    "size_kb": 24.67
+  },
+  "cambria": {
+    "name": "Cambria",
+    "type": "custom",
+    "file": "Cambria.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=GFDqWAB9jnWLT-HIK7ILq5haOAw&skey=d4699178559bc4b0&v=v18",
+    "size_kb": 40.12
+  },
+  "goudy stout": {
+    "name": "Goudy Stout",
+    "type": "system",
+    "file": null
+  },
+  "batang": {
+    "name": "Batang",
+    "type": "system",
+    "file": null
+  },
+  "cooper black": {
+    "name": "Cooper Black",
+    "type": "system",
+    "file": null
+  },
+  "franklin gothic book": {
+    "name": "Franklin Gothic Book",
+    "type": "system",
+    "file": null
+  },
+  "bodoni mt": {
+    "name": "Bodoni MT",
+    "type": "system",
+    "file": null
+  },
+  "algerian": {
+    "name": "Algerian",
+    "type": "custom",
+    "file": "Algerian.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=XoHl2Y_4Qras7MJMbyQKn9cDlDLo&skey=bd53e77feedd2bf7&v=v13",
+    "size_kb": 35.21
+  },
+  "charcoal cy": {
+    "name": "Charcoal CY",
+    "type": "system",
+    "file": null
+  },
+  "corbel": {
+    "name": "Corbel",
+    "type": "custom",
+    "file": "Corbel.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=3XFrErYg3YwI9Pf2MNUPvWPuRQ&skey=4ccfc0116d3989f9&v=v12",
+    "size_kb": 34.05
+  },
+  "sylfaen": {
+    "name": "Sylfaen",
+    "type": "system",
+    "file": null
   }
 }

@@ -26,8 +26,8 @@ DEFAULT_MODEL = "gemini-3.1-flash-lite"
 FALLBACK_MODELS = [
     "gemini-3.1-flash-lite",
     "gemini-3.5-flash-lite",
-    "gemini-flash-latest",
-    "gemini-3.6-flash",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-3.5-flash",
 ]
 
 def sanitize_text(text: str) -> str:
@@ -212,7 +212,14 @@ QAT'IY QOIDALAR:
                 raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
                 raw_text = re.sub(r"\s*```$", "", raw_text)
 
-                parsed = json.loads(raw_text)
+                try:
+                    parsed = json.loads(raw_text)
+                except Exception:
+                    m = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
+                    if m:
+                        parsed = json.loads(m.group(0))
+                    else:
+                        raise
                 if isinstance(parsed, list):
                     for row in parsed:
                         if isinstance(row, dict) and "id" in row:

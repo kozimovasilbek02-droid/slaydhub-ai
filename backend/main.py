@@ -309,6 +309,71 @@ async def open_in_powerpoint(req: GenerateRequest):
     return {"status": "ok", "message": "PowerPoint dasturida ochildi"}
 
 # ─────────────────────────────────────────────────────────
+# 7. AI PRESENTATION GENERATION API (GAMMA & VECTOR)
+# ─────────────────────────────────────────────────────────
+from backend.core.ai_presentation_generator import AIPresentationGenerator
+from backend.core.deck_builder import DeckBuilder, PALETTES
+from backend.core.gamma_generator import GammaGenerator
+
+ai_gen_service = AIPresentationGenerator()
+
+class PresentationGenerateRequest(BaseModel):
+    topic: str
+    slide_count: int = 10
+    style: str = "vector"  # "gamma", "vector"
+    theme: str = "uzbek_blue"  # "uzbek_blue", "emerald_teal", "dark_slate", "modern_purple", "crimson_ruby"
+    provider: str = "auto"
+
+@app.get("/api/generate/styles")
+async def get_generation_styles():
+    return {
+        "styles": [
+            {"id": "gamma", "name": "Gamma-Style (Ultra-HD)", "desc": "Glassmorphism, gradients and high-res cards"},
+            {"id": "vector", "name": "Native Vector (Editable)", "desc": "100% editable PowerPoint vector shapes and layouts"}
+        ],
+        "themes": list(PALETTES.keys())
+    }
+
+@app.post("/api/generate/presentation")
+async def generate_ai_presentation(req: PresentationGenerateRequest):
+    if not req.topic or len(req.topic.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Mavzu kamida 3 ta belgidan iborat bo'lishi kerak!")
+
+    spec = await ai_gen_service.generate_deck_spec(
+        topic=req.topic,
+        slide_count=req.slide_count,
+        theme=req.theme,
+        provider=req.provider
+    )
+
+    file_id = str(uuid.uuid4())[:8]
+    clean_topic = "".join(c for c in req.topic if c.isalnum() or c in (" ", "_", "-")).strip()[:35]
+    out_name = f"{clean_topic}_{req.style}_{file_id}.pptx"
+    out_path = os.path.join(OUTPUT_BASE, "_generated", out_name)
+
+    if req.style == "gamma":
+        final_path = await GammaGenerator.build(spec, out_path)
+    else:
+        final_path = DeckBuilder.build(spec, out_path)
+
+    return {
+        "status": "success",
+        "topic": req.topic,
+        "style": req.style,
+        "theme": req.theme,
+        "slide_count": len(spec.get("slides", [])),
+        "filename": out_name,
+        "download_url": f"/api/download_generated/{out_name}"
+    }
+
+@app.get("/api/download_generated/{filename}")
+async def download_generated_pptx(filename: str):
+    f_path = os.path.join(OUTPUT_BASE, "_generated", filename)
+    if not os.path.exists(f_path):
+        raise HTTPException(status_code=404, detail="Fayl topilmadi!")
+    return FileResponse(f_path, filename=filename)
+
+# ─────────────────────────────────────────────────────────
 # 7. SERVE COMPILED REACT FRONTEND
 # ─────────────────────────────────────────────────────────
 FRONTEND_DIST = os.path.join(parent_dir, "frontend", "dist")
