@@ -573,31 +573,44 @@ class PPTXProcessor:
             # Ustma-ust tushishlar va gorizontal/vertikal noaniqliklarni avtomatik bartaraf etish
             PPTXProcessor._optimize_slide_layout(slide, prs.slide_width, prs.slide_height)
 
-        # 2. Rasm shaklidagi slaydlar va diagramma rasmlarini AI (Gemini Vision / Nano) orqali tarjima qilish
+        # 2. Rasm shaklidagi slaydlar va diagramma rasmlarini AI (Gemini Vision / Nano) orqali parallel tarjima qilish
         try:
+            from concurrent.futures import ThreadPoolExecutor
             img_translator = ImageTranslator()
             image_cache: Dict[bytes, bytes] = {}
+            all_rids = []
             for slide in prs.slides:
-                # Slayd ichidagi barcha rasmlarni a:blip orqali to'liq qamrab olish
                 blip_rIds = slide._element.xpath('.//a:blip/@r:embed')
                 for rId in set(blip_rIds):
                     try:
                         img_part = slide.part.related_part(rId)
-                        if hasattr(img_part, 'blob') and img_part.blob:
-                            orig_blob = img_part.blob
-                            if len(orig_blob) > 2000:
-                                if orig_blob in image_cache:
-                                    new_blob = image_cache[orig_blob]
-                                else:
-                                    new_blob = img_translator.analyze_and_translate_image(orig_blob, target_script=target_script)
-                                    image_cache[orig_blob] = new_blob
-                                
-                                if new_blob and new_blob != orig_blob:
-                                    img_part._blob = new_blob
+                        if hasattr(img_part, 'blob') and img_part.blob and len(img_part.blob) > 2000:
+                            all_rids.append((img_part, img_part.blob))
                     except Exception:
                         pass
+
+            # Noyob rasmlarni parallel tarjima qilish
+            unique_blobs = list({b for _, b in all_rids})
+            if unique_blobs:
+                def _trans_blob(blob: bytes) -> tuple[bytes, bytes]:
+                    try:
+                        nb = img_translator.analyze_and_translate_image(blob, target_script=target_script)
+                        return (blob, nb)
+                    except Exception:
+                        return (blob, blob)
+
+                workers = min(5, len(unique_blobs))
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    results = executor.map(_trans_blob, unique_blobs)
+                    for ob, nb in results:
+                        image_cache[ob] = nb
+
+                for img_part, orig_blob in all_rids:
+                    new_blob = image_cache.get(orig_blob)
+                    if new_blob and new_blob != orig_blob:
+                        img_part._blob = new_blob
         except Exception as img_err:
-            print(f"[PPTXProcessor] Rasm tarjimasida ogohlantirish: {img_err}")
+            logger.warning(f"Rasm tarjimasida ogohlantirish: {img_err}")
 
         # 3. Reklama, suvbelgilar va resurs slaydlarini tarjima yakunlangach tozalash
         if clean_watermarks:
