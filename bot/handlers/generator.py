@@ -11,6 +11,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from bot.config import OUTPUT_DIR
 from bot.services.notebooklm_service import NotebookLMService
 from bot.services.slide_builder import SlideBuilderService
+from bot.services.file_cache import register_file
 from backend.core.ai_presentation_generator import AIPresentationGenerator
 from backend.core.gamma_generator import GammaGenerator
 from backend.core.deck_builder import DeckBuilder
@@ -129,6 +130,11 @@ async def handle_theme_choice(callback: types.CallbackQuery, state: FSMContext):
 
 
 async def execute_generation(callback: types.CallbackQuery, state: FSMContext, theme: str = "uzbek_blue"):
+    try:
+        await callback.answer()
+    except Exception:
+        pass
+
     data = await state.get_data()
     topic = data.get("topic", "Taqdimot")
     slide_count = data.get("slide_count", 10)
@@ -183,8 +189,9 @@ async def execute_generation(callback: types.CallbackQuery, state: FSMContext, t
 
         await status_msg.edit_text("✅ <b>Taqdimot tayyor! Fayl yuklanmoqda...</b>", parse_mode="HTML")
 
+        short_id = register_file(final_pptx_path)
         builder = InlineKeyboardBuilder()
-        builder.button(text="📤 Soff.uz ga yuklash (Avtomatik)", callback_data=f"soff_up:{final_pptx_path.name}")
+        builder.button(text="📤 Soff.uz ga yuklash (Avtomatik)", callback_data=f"soff_up:{short_id}")
         builder.button(text="🧠 Yangi mavzuda yaratish", callback_data="menu_generate")
         builder.button(text="🏠 Asosiy menyu", callback_data="menu_main")
         builder.adjust(1)
@@ -206,9 +213,13 @@ async def execute_generation(callback: types.CallbackQuery, state: FSMContext, t
             parse_mode="HTML",
             reply_markup=builder.as_markup()
         )
-        await status_msg.delete()
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
 
     except Exception as e:
-        await status_msg.edit_text(f"❌ Taqdimot yaratishda xatolik yuz berdi: {str(e)}")
-
-    await callback.answer()
+        try:
+            await status_msg.edit_text(f"❌ Taqdimot yaratishda xatolik yuz berdi: {str(e)}")
+        except Exception:
+            await callback.message.answer(f"❌ Taqdimot yaratishda xatolik yuz berdi: {str(e)}")

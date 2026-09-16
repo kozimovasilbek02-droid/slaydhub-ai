@@ -10,6 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from bot.config import TEMP_DIR, OUTPUT_DIR
 from bot.services.translator_service import TranslatorService
 from bot.services.soff_uploader import SoffUploaderService
+from bot.services.file_cache import register_file, get_file
 
 router = Router()
 translator_service = TranslatorService()
@@ -81,8 +82,9 @@ async def process_translation(message: types.Message, input_path: Path, original
         )
 
         # Soff.uz yuklash tugmasi
+        short_id = register_file(output_path)
         builder = InlineKeyboardBuilder()
-        builder.button(text="📤 Soff.uz ga yuklash (Avtomatik)", callback_data=f"soff_up:{output_path.name}")
+        builder.button(text="📤 Soff.uz ga yuklash (Avtomatik)", callback_data=f"soff_up:{short_id}")
         builder.button(text="🏠 Asosiy menyu", callback_data="menu_main")
         builder.adjust(1)
 
@@ -174,17 +176,25 @@ async def handle_pptx_file(message: types.Message, state: FSMContext, bot: Bot):
 
 @router.callback_query(F.data.startswith("soff_up:"))
 async def cb_soff_upload(callback: types.CallbackQuery):
-    filename = callback.data.split("soff_up:", 1)[1]
-    file_path = OUTPUT_DIR / filename
+    try:
+        await callback.answer()
+    except Exception:
+        pass
 
-    if not file_path.exists():
-        await callback.answer("Fayl topilmadi yoki muddati o'tgan.", show_alert=True)
+    short_id = callback.data.split("soff_up:", 1)[1]
+    file_path = get_file(short_id, OUTPUT_DIR)
+
+    if not file_path or not file_path.exists():
+        await callback.message.reply("⚠️ Fayl topilmadi yoki kesh muddati o'tgan. Iltimos, qayta urinib ko'ring.")
         return
 
-    await callback.message.edit_reply_markup(reply_markup=None)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     status_msg = await callback.message.reply("🚀 <b>Soff.uz ga yuklash boshlandi... Kutilmoqda...</b>", parse_mode="HTML")
 
-    title = filename.replace(".pptx", "").replace("Uzbek_", "").replace("_Taqdimot", "").replace("_", " ")
+    title = file_path.stem.replace("Uzbek_", "").replace("_Taqdimot", "").replace("_", " ")
     res = await SoffUploaderService.upload_presentation(
         pptx_path=str(file_path),
         title=title,
@@ -204,5 +214,3 @@ async def cb_soff_upload(callback: types.CallbackQuery):
         )
     else:
         await status_msg.edit_text(f"❌ Soff.uz ga yuklashda xatolik: {res.get('error')}")
-
-    await callback.answer()
