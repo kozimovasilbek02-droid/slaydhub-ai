@@ -37,6 +37,7 @@ def safe_load_presentation(pptx_path: str) -> Presentation:
 from backend.core.transliteration import ensure_script
 from backend.core.font_manager import font_manager
 from backend.core.thumbnail_generator import ThumbnailGenerator
+from backend.core.image_translator import ImageTranslator
 
 def sanitize_control_chars(text: str) -> str:
     if not text:
@@ -401,6 +402,7 @@ class PPTXProcessor:
             # 3. Regular Shape / TextBox
             if shape.has_text_frame:
                 tf = shape.text_frame
+                has_tf_text = False
                 for p_idx, p in enumerate(tf.paragraphs):
                     p_text = sanitize_control_chars(p.text)
                     if PPTXProcessor._is_real_text(p_text) and not PPTXProcessor._is_watermark_text(p_text):
@@ -420,6 +422,9 @@ class PPTXProcessor:
                             "font_color": f_meta["font_color"],
                             "box": box_info
                         })
+                        has_tf_text = True
+                if has_tf_text:
+                    continue
 
             # 4. Native PowerPoint Charts
             if shape.has_chart:
@@ -481,6 +486,35 @@ class PPTXProcessor:
                             })
                 except Exception:
                     pass
+                continue
+
+            # 5. SmartArt, DrawingML & Custom Shapes XML Fallback
+            try:
+                elem = getattr(shape, "_element", None)
+                if elem is not None:
+                    for p_idx, p_elem in enumerate(elem.xpath('.//a:p')):
+                        t_nodes = p_elem.xpath('.//a:t')
+                        if t_nodes:
+                            p_text = sanitize_control_chars("".join(t.text or "" for t in t_nodes))
+                            if PPTXProcessor._is_real_text(p_text) and not PPTXProcessor._is_watermark_text(p_text):
+                                item_id = f"s{slide_index}_{sh_id_str}_xmlp_{p_idx}"
+                                if not any(it["id"] == item_id for it in items_list):
+                                    items_list.append({
+                                        "id": item_id,
+                                        "slide_index": slide_index,
+                                        "shape_name": shape.name or f"Diagramma Blok {sh_idx+1}",
+                                        "item_type": "body",
+                                        "original_text": p_text,
+                                        "translated_text": p_text,
+                                        "font_name": "Calibri",
+                                        "font_size_pt": 16.0,
+                                        "is_bold": False,
+                                        "is_italic": False,
+                                        "font_color": "#333333",
+                                        "box": box_info
+                                    })
+            except Exception:
+                pass
 
     @staticmethod
     def apply_translations_and_export(
@@ -501,6 +535,7 @@ class PPTXProcessor:
         if clean_watermarks:
             PPTXProcessor.clean_presentation_watermarks(prs)
 
+        # 1. Matnli shakllar va SmartArt diagrammalarini tarjima qilish
         for s_idx, slide in enumerate(prs.slides, start=1):
             PPTXProcessor._apply_to_shapes_recursive(
                 shapes=slide.shapes,
@@ -511,6 +546,24 @@ class PPTXProcessor:
             )
             # Ustma-ust tushishlar va gorizontal/vertikal noaniqliklarni avtomatik bartaraf etish
             PPTXProcessor._optimize_slide_layout(slide, prs.slide_width, prs.slide_height)
+
+        # 2. Rasm shaklidagi slaydlar va diagramma rasmlarini AI (Gemini Vision / Nano) orqali tarjima qilish
+        try:
+            img_translator = ImageTranslator()
+            for slide in prs.slides:
+                for sh in list(slide.shapes):
+                    if getattr(sh, 'shape_type', None) == MSO_SHAPE_TYPE.PICTURE:
+                        try:
+                            if hasattr(sh, 'image') and sh.image and sh.image.blob:
+                                orig_blob = sh.image.blob
+                                if len(orig_blob) > 4000:
+                                    new_blob = img_translator.analyze_and_translate_image(orig_blob, target_script=target_script)
+                                    if new_blob and new_blob != orig_blob:
+                                        sh.image._part._blob = new_blob
+                        except Exception:
+                            pass
+        except Exception as img_err:
+            print(f"[PPTXProcessor] Rasm tarjimasida ogohlantirish: {img_err}")
 
         # 1-slayd sarlavhasini kafolatlash (agar shablon sarlavhasiz yoki placeholder bo'lsa)
         if len(prs.slides) > 0 and presentation_title:
@@ -652,6 +705,23 @@ class PPTXProcessor:
                 except Exception:
                     pass
 
+            # 5. SmartArt, DrawingML & Custom Shapes XML Fallback
+            try:
+                elem = getattr(shape, "_element", None)
+                if elem is not None:
+                    for p_idx, p_elem in enumerate(elem.xpath('.//a:p')):
+                        item_id = f"s{slide_index}_{sh_id_str}_xmlp_{p_idx}"
+                        trans = translations_map.get(item_id)
+                        if trans:
+                            t_nodes = p_elem.xpath('.//a:t')
+                            if t_nodes:
+                                safe_trans = ensure_script(sanitize_control_chars(trans), target_script)
+                                t_nodes[0].text = safe_trans
+                                for t_extra in t_nodes[1:]:
+                                    t_extra.text = ""
+            except Exception:
+                pass
+
     @staticmethod
     def _set_paragraph_text_safe(paragraph, new_text: str, auto_fit: bool = True, shape = None):
         # Remove any lingering <a:br> elements that cause control character _x000B_ or trailing line jumps
@@ -664,11 +734,6 @@ class PPTXProcessor:
         if not paragraph.runs:
             paragraph.text = sanitize_control_chars(new_text)
             return
-
-        orig_text = sanitize_control_chars("".join(r.text for r in paragraph.runs))
-        first_run = paragraph.runs[0]
-
-        orig_font_name = first_run.font.name if (first_run.font and first_run.font.name) else None
 
         clean_val = sanitize_control_chars(new_text)
         safe_text = re.sub(r"([A-Za-zА-Яа-яЎўҒғҚқҲҳ])['`’‘ʼʻ]([A-Za-zА-Яа-яЎўҒғҚқҲҳ])", r"\1'\2", clean_val)
@@ -697,85 +762,37 @@ class PPTXProcessor:
             else:
                 safe_text = "Ushbu bo'limda taqdimot mavzusi yuzasidan batafsil ma'lumotlar, asosiy ko'rsatkichlar va tahliliy xulosalar keltiriladi."
 
-        orig_len = float(len(orig_text))
-        new_len = float(len(safe_text))
-
-        box_width_pt = None
-        if shape and hasattr(shape, "width") and shape.width:
-            try:
-                box_width_pt = shape.width.pt
-            except Exception:
-                pass
-
-        for r in paragraph.runs:
-            current_pt = 16.0
-            if r.font and r.font.size and r.font.size.pt:
-                current_pt = r.font.size.pt
-            else:
-                if orig_len <= 6:
-                    current_pt = 22.0
-                elif orig_len <= 15:
-                    current_pt = 18.0
-                elif orig_len <= 30:
-                    current_pt = 14.0
-                else:
-                    current_pt = 12.0
-
-            try:
-                new_pt = current_pt
-                
-                # A. Yakka so'z sarlavhalar (masalan: MUNDARIJA, BO'LIM, 01)
-                if " " not in safe_text.strip():
-                    if new_len > orig_len:
-                        new_pt = max(10.0, current_pt * (orig_len / new_len) * 1.1)
-                    if box_width_pt:
-                        max_w_pt = (box_width_pt - 4) / (new_len * 0.58)
-                        new_pt = min(new_pt, max(9.0, max_w_pt))
-                
-                # B. Subtitle / Qo'shimcha sarlavha (masalan: Work report, CONTENTS)
-                elif orig_text.lower() in ["work report", "contents", "business plan", "company report"]:
-                    new_pt = min(14.0, current_pt)
-                
-                # C. Katta va uzun sarlavhalar (masalan: Kompaniyamizning so'nggi SWOT tahlili hisoboti)
-                elif current_pt >= 24.0:
-                    if "\n" not in orig_text and box_width_pt:
-                        # Original matn 1 qator bo'lsa, tarjima ham 1 qatordan oshmasligi shart (ustma-ust tushishning oldini oladi)
-                        max_1line_pt = (box_width_pt - 25) / (max(1, new_len) * 0.65)
-                        new_pt = min(current_pt, max(16.0, max_1line_pt))
-                        if new_len > orig_len:
-                            new_pt = min(new_pt, max(16.0, current_pt * (orig_len / new_len)))
-                    elif new_len >= 35:
-                        new_pt = max(14.0, current_pt * 0.72)
-                    elif new_len >= 20:
-                        new_pt = max(16.0, current_pt * 0.82)
-                    else:
-                        new_pt = max(18.0, current_pt * 0.90)
-                
-                # D. O'rta sarlavhalar (>= 18pt)
-                elif current_pt >= 18.0:
-                    ratio = (orig_len / new_len) if new_len > orig_len else 1.0
-                    new_pt = max(11.0, current_pt * (ratio ** 0.85))
-                
-                # E. Uzun izoh va matnlar (new_len >= 80)
-                elif new_len >= 80:
-                    ratio = (orig_len / new_len) if new_len > orig_len else 1.0
-                    new_pt = max(8.5, min(12.0, current_pt * (ratio ** 0.80)))
-                
-                # F. Standart matnlar
-                elif current_pt >= 12.0:
-                    ratio = (orig_len / new_len) if new_len > orig_len else 1.0
-                    new_pt = max(8.0, current_pt * (ratio ** 0.78))
-                else:
-                    ratio = (orig_len / new_len) if new_len > orig_len else 1.0
-                    new_pt = max(6.5, current_pt * (ratio ** 0.72))
-                
-                r.font.size = Pt(new_pt)
-                if orig_font_name and r.font:
-                    r.font.name = orig_font_name
-            except Exception:
-                pass
+        first_run = paragraph.runs[0]
+        orig_font_name = first_run.font.name if (first_run.font and first_run.font.name) else None
+        orig_font_size = first_run.font.size if (first_run.font and first_run.font.size) else None
+        orig_bold = first_run.font.bold if (first_run.font and first_run.font.bold is not None) else None
+        orig_italic = first_run.font.italic if (first_run.font and first_run.font.italic is not None) else None
+        orig_color = None
+        try:
+            if first_run.font and first_run.font.color and first_run.font.color.type is not None:
+                if first_run.font.color.rgb:
+                    orig_color = first_run.font.color.rgb
+        except Exception:
+            pass
 
         first_run.text = safe_text
+
+        # 100% Consistent Typography: Shrift o'lchami va uslubini barcha bandlar uchun bir xil saqlash
+        if orig_font_name and first_run.font:
+            first_run.font.name = orig_font_name
+        if orig_font_size and first_run.font:
+            first_run.font.size = orig_font_size
+        if orig_bold is not None and first_run.font:
+            first_run.font.bold = orig_bold
+        if orig_italic is not None and first_run.font:
+            first_run.font.italic = orig_italic
+        if orig_color and first_run.font and first_run.font.color:
+            try:
+                first_run.font.color.rgb = orig_color
+            except Exception:
+                pass
+
+        # Ortiqcha qo'shimcha runlarni tozalash
         if len(paragraph.runs) > 1:
             for r in paragraph.runs[1:]:
                 r.text = ""
