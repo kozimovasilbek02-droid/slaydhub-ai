@@ -35,7 +35,16 @@ class ImageTranslator:
             or os.environ.get("GOOGLE_API_KEY", "")
         )
         self.client = genai.Client(api_key=self.api_key) if self.api_key else genai.Client()
-        self.model_name = "gemini-3.1-flash-lite"
+        self.model_candidates = [
+            "gemini-3.5-flash-lite",
+            "gemini-3.5-flash",
+            "gemini-3.6-flash",
+            "gemini-3.7-flash",
+            "gemini-3.8-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash-lite",
+        ]
+        self.model_name = self.model_candidates[0]
 
     @staticmethod
     def _sample_background_color(rgb_img: Image.Image, left: int, top: int, right: int, bottom: int) -> Tuple[int, int, int]:
@@ -136,17 +145,28 @@ class ImageTranslator:
             pil_img.convert("RGB").save(img_buf, format="JPEG", quality=92)
             img_jpeg_bytes = img_buf.getvalue()
 
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=[
-                    types.Part.from_bytes(data=img_jpeg_bytes, mime_type="image/jpeg"),
-                    prompt
-                ],
-                config=types.GenerateContentConfig(
-                    temperature=0.1,
-                    response_mime_type="application/json"
-                )
-            )
+            response = None
+            for model_name in self.model_candidates:
+                try:
+                    response = self.client.models.generate_content(
+                        model=model_name,
+                        contents=[
+                            types.Part.from_bytes(data=img_jpeg_bytes, mime_type="image/jpeg"),
+                            prompt
+                        ],
+                        config=types.GenerateContentConfig(
+                            temperature=0.1,
+                            response_mime_type="application/json"
+                        )
+                    )
+                    if response and response.text:
+                        break
+                except Exception as model_err:
+                    logger.warning(f"ImageTranslator model {model_name} failed: {model_err}")
+                    continue
+
+            if not response or not response.text:
+                return image_bytes
 
             resp_text = response.text.strip()
             if resp_text.startswith("```"):
