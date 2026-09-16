@@ -46,23 +46,55 @@ class ThumbnailGenerator:
 
     @classmethod
     def export_presentation_previews(cls, pptx_path: str, output_dir: str, max_slides: int = 3, width: int = 1920, height: int = 1080) -> List[str]:
-        """Taqdimotdan 2-3 ta slaydning real preview rasmlarini yaratish."""
+        """Taqdimotdan 2-3 ta slaydning 100% real Ultra-HD skrinshot rasmlarini yaratish."""
         abs_pptx = os.path.abspath(pptx_path)
         os.makedirs(output_dir, exist_ok=True)
         base_name = os.path.splitext(os.path.basename(abs_pptx))[0]
         
-        # 1. LibreOffice orqali PDF ga o'girib, sahifalarni rasmlarga aylantirish
+        # 1. Windows Native PowerPoint COM orqali 100% real slayd skrinshotini olish (Eng aniq va sifatli usul)
+        com_images = cls._try_powerpoint_com_export(abs_pptx, output_dir, max_slides, width, height)
+        if com_images:
+            return com_images
+
+        # 2. LibreOffice orqali PDF ga o'girib, sahifalarni rasmlarga aylantirish
         pdf_images = cls._try_libreoffice_export(abs_pptx, output_dir, max_slides, width, height)
         if pdf_images:
             return pdf_images
 
-        # 2. Pure-Python + Pillow + python-pptx High-Fidelity Slayd rendereri
+        # 3. Pure-Python + Pillow + python-pptx High-Fidelity Slayd rendereri
         pil_images = cls._try_pil_pptx_render(abs_pptx, output_dir, max_slides, width, height)
         if pil_images:
             return pil_images
 
-        # 3. Agar LibreOffice yoki PIL render yaratilmasa, xavfsiz bo'sh ro'yxat qaytarish (rekursiyasiz)
         return []
+
+    @classmethod
+    def _try_powerpoint_com_export(cls, abs_pptx: str, output_dir: str, max_slides: int, width: int, height: int) -> List[str]:
+        """Microsoft PowerPoint COM orqali 100% real, haqiqiy slayd skrinshotini olish."""
+        try:
+            import win32com.client
+            import pythoncom
+            pythoncom.CoInitialize()
+            ppt = win32com.client.Dispatch("PowerPoint.Application")
+            pres = ppt.Presentations.Open(abs_pptx, ReadOnly=True, Untitled=False, WithWindow=False)
+            base_name = os.path.splitext(os.path.basename(abs_pptx))[0]
+            
+            total_slides = pres.Slides.Count
+            slides_to_export = min(max_slides, total_slides)
+            generated = []
+            
+            for idx in range(1, slides_to_export + 1):
+                out_img = os.path.join(output_dir, f"{base_name}_slide_{idx}.jpg")
+                pres.Slides(idx).Export(out_img, "JPG", width, height)
+                if os.path.exists(out_img):
+                    generated.append(out_img)
+            
+            pres.Close()
+            ppt.Quit()
+            pythoncom.CoUninitialize()
+            return generated
+        except Exception:
+            return []
 
     @classmethod
     def export_slide_preview(cls, pptx_path: str, output_image_path: str, width: int = 1920, height: int = 1080) -> bool:

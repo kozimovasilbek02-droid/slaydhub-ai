@@ -15,6 +15,7 @@ from bot.services.file_cache import register_file
 from backend.core.ai_presentation_generator import AIPresentationGenerator
 from backend.core.gamma_generator import GammaGenerator
 from backend.core.deck_builder import DeckBuilder
+from backend.core.thumbnail_generator import ThumbnailGenerator
 
 router = Router()
 notebooklm_service = NotebookLMService()
@@ -206,6 +207,19 @@ async def execute_generation(callback: types.CallbackQuery, state: FSMContext, t
             f"🌈 <b>Mavzu palitrasi:</b> {theme}\n\n"
             f"<i>Barcha slaydlar professional tarzda tartiblangan va tayyor.</i>"
         )
+
+        # 1-slayd haqiqiy skrinshotini (Screenshot) olish
+        preview_img = str(final_pptx_path).replace(".pptx", "_preview.jpg")
+        try:
+            has_prev = ThumbnailGenerator.export_slide_preview(str(final_pptx_path), preview_img)
+            if has_prev and os.path.exists(preview_img):
+                await callback.message.answer_photo(
+                    photo=types.FSInputFile(preview_img),
+                    caption=f"🖼️ <b>1-slayd ko'rinishi:</b>\n📄 <i>{clean_topic}</i>",
+                    parse_mode="HTML"
+                )
+        except Exception:
+            pass
 
         await callback.message.answer_document(
             document=types.FSInputFile(str(final_pptx_path), filename=out_filename),

@@ -11,6 +11,7 @@ from bot.config import TEMP_DIR, OUTPUT_DIR
 from bot.services.translator_service import TranslatorService
 from bot.services.soff_uploader import SoffUploaderService
 from bot.services.file_cache import register_file, get_file
+from backend.core.thumbnail_generator import ThumbnailGenerator
 
 router = Router()
 translator_service = TranslatorService()
@@ -99,6 +100,19 @@ async def process_translation(message: types.Message, input_path: Path, original
             f"✨ Til: O'zbek tili (Lotin alifbosi)\n\n"
             f"<i>Faylni bir bosishda Soff.uz platformasiga ham yuklashingiz mumkin:</i>"
         )
+
+        # Haqiqiy 1-slayd skrinshotini (Screenshot) olish
+        preview_img = str(output_path).replace(".pptx", "_preview.jpg")
+        try:
+            has_preview = ThumbnailGenerator.export_slide_preview(str(output_path), preview_img)
+            if has_preview and os.path.exists(preview_img):
+                await message.answer_photo(
+                    photo=types.FSInputFile(preview_img),
+                    caption=f"🖼️ <b>1-slayd ko'rinishi:</b>\n📄 <i>{clean_title}</i>",
+                    parse_mode="HTML"
+                )
+        except Exception as prev_err:
+            pass
 
         await message.answer_document(
             document=types.FSInputFile(str(output_path), filename=output_filename),
