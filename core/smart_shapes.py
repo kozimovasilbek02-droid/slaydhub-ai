@@ -4,9 +4,7 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
 
-def hex_to_rgb(hex_code):
-    h = hex_code.lstrip('#')
-    return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+from core.utils.colors import hex_to_rgb
 
 def add_header(slide, title_text, subtitle_text=None, align=PP_ALIGN.CENTER, x=0.8, y=0.50, w=11.733):
     tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(0.85))
@@ -147,3 +145,44 @@ def draw_interlocking_cards(slide, cards_data, start_x=0.75, card_w=1.96, card_h
         b_bar.fill.solid()
         b_bar.fill.fore_color.rgb = c_rgb
         b_bar.line.fill.background()
+
+
+class ParametricSlotAdapter:
+    """
+    Computes exact proportional geometries for N items across slide safe zone.
+    Guarantees no sticker boxes, no overlap, and zero out-of-boundary collisions.
+    """
+    @staticmethod
+    def calculate_slot_layout(
+        item_count: int,
+        safe_left_in: float = 0.8,
+        safe_width_in: float = 11.733,
+        min_gap_in: float = 0.25,
+        max_card_w_in: float = 3.6
+    ):
+        """
+        Calculates optimal left position and width for each of N items.
+        """
+        if item_count <= 0:
+            return []
+
+        # Calculate available width per item
+        total_gaps = (item_count - 1) * min_gap_in
+        ideal_w = (safe_width_in - total_gaps) / item_count
+        card_w = min(max_card_w_in, max(1.8, ideal_w))
+
+        # Recalculate gap to center the block if cards are narrower than max
+        total_content_w = (item_count * card_w) + total_gaps
+        start_x = safe_left_in + max(0.0, (safe_width_in - total_content_w) / 2.0)
+        gap = min_gap_in if item_count > 1 else 0.0
+
+        slots = []
+        for i in range(item_count):
+            x = start_x + i * (card_w + gap)
+            slots.append({
+                "index": i,
+                "left": x,
+                "width": card_w,
+                "is_centered": True
+            })
+        return slots

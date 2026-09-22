@@ -62,9 +62,11 @@ class PPTXProcessor:
         r"http[s]?://\S*free-powerpoint-templates\S*",
         r"http[s]?://\S*presentationgo\S*",
         r"bepul\s+ppt\s+shablonlar",
-        r"\b(учитель|преподаватель|автор|составитель|разработчик|выполнил[а]?|подготовил[а]?|o['’`]?qituvchi(si)?|muallif(i)?|tayyorladi|bajaruvchi|teacher|author|prepared\s+by)\b",
+        r"\b(учитель|преподаватель|автор|составитель|разработчик|выполнил[а]?|подготовил[а]?|o['’`]?qituvchi(si)?|muallif(lar)?(i)?|tayyorladi|bajaruvchi|bajardi|teacher|author|prepared\s+by)\b",
         r"\b(школ[аые]|сош|гимнази[яи]|лице[йи]|колледж|институт|университет|доу|детский\s*сад|maktab(i)?|litsey|kollej|bog['’`]?cha|school|lyceum|college|university)\b",
-        r"\b(истори[яи]|математик[аи]|биологи[яи]|физик[аи]|литератур[аы]|geografiy[ai]|tarix|ona\s+tili|adabiyot)\s+(o['’`]?qituvchisi|учитель|преподаватель)\b",
+        r"\b(talabasi|o['’`]?quvchisi|kurs\s+talabasi|guruh\s+talabasi|ilmiy\s+rahbar|rahbar\s*:|tayyorlovchi|taqrizchi|fakulteti|kafedrasi|yo['’`]?nalishi|mutaxassisligi)\b",
+        r"\b(студент(ка)?|ученик|ученица|научный\s+руководитель|руководитель|проверил[а]?|кафедра|факультет)\b",
+        r"\b(истори[яи]|математик[аи]|биологи[яи]|физик[аи]|литератур[аы]|geografiy[ai]|tarix|ona\s+tili|adabiyot|informatika)\s+(o['’`]?qituvchisi|учитель|преподаватель)\b",
         r"\b(infourok|multiurok|nsportal|kopilkaurokov|urok\.1sept|videouroki|pedsovet|myshared|ppt4web|zanimatika)\b",
         r"[А-ЯA-Z]\.\s*[А-ЯA-Z]\.\s*[А-ЯA-Zа-яa-z]{3,}"
     ]
@@ -250,11 +252,17 @@ class PPTXProcessor:
         # 3. Clean Slide Level Watermarks, Corner Logo Badges and Footer Links
         for s_idx, slide in enumerate(prs.slides, 1):
             for sh in list(slide.shapes):
-                # 1-slaydda asosiy sarlavha (Title / Title Placeholder) va sarlavha osti qutilari o'chirilmasligi kerak!
-                # ALLPPT kabi shablonlarda 1-slayddagi sarlavha 'Free PPT Templates' yoki 'Insert the title' deb yozilgan bo'ladi.
-                if s_idx == 1 and sh.has_text_frame and (sh.width or 0) >= sw * 0.35:
-                    txt = sh.text_frame.text.strip().lower()
-                    if not any(u in txt for u in ["http://", "https://", "www.allppt"]):
+                # 1-slaydda asosiy sarlavha (Title / Title Placeholder) saqlanadi, lekin muallif/o'qituvchi/reklama qutilari o'chiriladi!
+                if s_idx == 1 and sh.has_text_frame:
+                    txt = sh.text_frame.text.strip()
+                    if PPTXProcessor._is_watermark_text(txt):
+                        try:
+                            sh._element.getparent().remove(sh._element)
+                            removed += 1
+                            continue
+                        except Exception:
+                            pass
+                    elif (sh.width or 0) >= sw * 0.35 and not any(u in txt.lower() for u in ["http://", "https://", "www.allppt"]):
                         continue
 
                 # A. Har tomonlama reklama va watermark tekshiruvi (matn, XML, descr, logo rasmlari, guruhlar)
@@ -554,7 +562,8 @@ class PPTXProcessor:
         target_script: str = "latin",
         clean_watermarks: bool = True,
         presentation_title: str = "",
-        embed_thumbnail: bool = False
+        embed_thumbnail: bool = False,
+        translate_images: bool = False
     ) -> str:
         if not os.path.exists(original_pptx_path):
             raise FileNotFoundError(f"Original PPTX topilmadi: {original_pptx_path}")
@@ -574,43 +583,44 @@ class PPTXProcessor:
             PPTXProcessor._optimize_slide_layout(slide, prs.slide_width, prs.slide_height)
 
         # 2. Rasm shaklidagi slaydlar va diagramma rasmlarini AI (Gemini Vision / Nano) orqali parallel tarjima qilish
-        try:
-            from concurrent.futures import ThreadPoolExecutor
-            img_translator = ImageTranslator()
-            image_cache: Dict[bytes, bytes] = {}
-            all_rids = []
-            for slide in prs.slides:
-                blip_rIds = slide._element.xpath('.//a:blip/@r:embed')
-                for rId in set(blip_rIds):
-                    try:
-                        img_part = slide.part.related_part(rId)
-                        if hasattr(img_part, 'blob') and img_part.blob and len(img_part.blob) > 2000:
-                            all_rids.append((img_part, img_part.blob))
-                    except Exception:
-                        pass
+        if translate_images:
+            try:
+                from concurrent.futures import ThreadPoolExecutor
+                img_translator = ImageTranslator()
+                image_cache: Dict[bytes, bytes] = {}
+                all_rids = []
+                for slide in prs.slides:
+                    blip_rIds = slide._element.xpath('.//a:blip/@r:embed')
+                    for rId in set(blip_rIds):
+                        try:
+                            img_part = slide.part.related_part(rId)
+                            if hasattr(img_part, 'blob') and img_part.blob and len(img_part.blob) > 2000:
+                                all_rids.append((img_part, img_part.blob))
+                        except Exception:
+                            pass
 
-            # Noyob rasmlarni parallel tarjima qilish
-            unique_blobs = list({b for _, b in all_rids})
-            if unique_blobs:
-                def _trans_blob(blob: bytes) -> tuple[bytes, bytes]:
-                    try:
-                        nb = img_translator.analyze_and_translate_image(blob, target_script=target_script)
-                        return (blob, nb)
-                    except Exception:
-                        return (blob, blob)
+                # Noyob rasmlarni parallel tarjima qilish
+                unique_blobs = list({b for _, b in all_rids})
+                if unique_blobs:
+                    def _trans_blob(blob: bytes) -> tuple[bytes, bytes]:
+                        try:
+                            nb = img_translator.analyze_and_translate_image(blob, target_script=target_script)
+                            return (blob, nb)
+                        except Exception:
+                            return (blob, blob)
 
-                workers = min(5, len(unique_blobs))
-                with ThreadPoolExecutor(max_workers=workers) as executor:
-                    results = executor.map(_trans_blob, unique_blobs)
-                    for ob, nb in results:
-                        image_cache[ob] = nb
+                    workers = min(5, len(unique_blobs))
+                    with ThreadPoolExecutor(max_workers=workers) as executor:
+                        results = executor.map(_trans_blob, unique_blobs)
+                        for ob, nb in results:
+                            image_cache[ob] = nb
 
-                for img_part, orig_blob in all_rids:
-                    new_blob = image_cache.get(orig_blob)
-                    if new_blob and new_blob != orig_blob:
-                        img_part._blob = new_blob
-        except Exception as img_err:
-            logger.warning(f"Rasm tarjimasida ogohlantirish: {img_err}")
+                    for img_part, orig_blob in all_rids:
+                        new_blob = image_cache.get(orig_blob)
+                        if new_blob and new_blob != orig_blob:
+                            img_part._blob = new_blob
+            except Exception as img_err:
+                logger.warning(f"Rasm tarjimasida ogohlantirish: {img_err}")
 
         # 3. Reklama, suvbelgilar va resurs slaydlarini tarjima yakunlangach tozalash
         if clean_watermarks:

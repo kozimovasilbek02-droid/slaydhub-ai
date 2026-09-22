@@ -11,9 +11,7 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.dml.color import RGBColor
 from PIL import Image, ImageDraw, ImageFont
 
-def hex_to_rgb(hex_str):
-    hex_str = hex_str.lstrip('#')
-    return RGBColor(*(int(hex_str[i:i+2], 16) for i in (0, 2, 4)))
+from core.utils.colors import hex_to_rgb
 
 def clean_title(folder_name):
     # Convert '100_Day_New_Leadership_Position_Plan' -> '100 Day New Leadership Position Plan'

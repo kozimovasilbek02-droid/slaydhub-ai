@@ -22,17 +22,13 @@ from backend.core.transliteration import ensure_script, latin_to_cyrillic
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_MODEL = "gemini-3.1-flash-lite"
 FALLBACK_MODELS = [
-    "gemini-3.5-flash-lite",
-    "gemini-3.5-flash",
-    "gemini-3.6-flash",
-    "gemini-3.7-flash",
-    "gemini-3.8-flash",
     "gemini-3.1-flash-lite",
     "gemini-3.1-flash-lite-preview",
-    "gemini-2.5-flash-lite",
-    "gemini-flash-latest",
+    "gemini-3-flash-preview",
+    "gemini-3.5-flash-lite",
+    "gemini-3.6-flash",
 ]
 
 def sanitize_text(text: str) -> str:
@@ -123,8 +119,8 @@ class GeminiTranslator:
         domain: str = "general",
         glossary: Optional[Dict[str, str]] = None,
         stats: Optional[Dict[str, Any]] = None,
-        batch_size: int = 35,
-        max_workers: int = 4,
+        batch_size: int = 60,
+        max_workers: int = 1,
     ) -> List[Dict[str, Any]]:
         """
         Slayd elementlari ro'yxatini parallel batch tarzda tarjima qiladi.
@@ -260,78 +256,226 @@ QAT'IY QOIDALAR:
         user_content = json.dumps(prompt_payload, ensure_ascii=False, indent=2)
 
         result_map: Dict[str, str] = {}
-        last_exception = None
 
-        for attempt in range(max_retries):
-            cur_model = self.model_candidates[attempt % len(self.model_candidates)]
+        # 1. Agar GROQ_API_KEY mavjud bo'lsa, birinchi navbatda Groq orqali tarjima qilamiz
+        groq_key = os.environ.get("GROQ_API_KEY")
+        if groq_key:
+            result_map = self._translate_via_groq(items, system_instruction, is_cyrillic)
+
+        # 2. Agar Groq yetishmayotgan elementlar qoldirgan bo'lsa yoki ishlamasa, Gemini orqali to'ldiramiz
+        missing_items = [it for it in items if not (result_map.get(it["id"]) or result_map.get(str(it["id"])))]
+        if missing_items:
+            gem_res = self._translate_via_gemini(missing_items, system_instruction, is_cyrillic)
+            result_map.update(gem_res)
+
+        # 3. Agar hali ham yetishmayotgan elementlar bo'lsa, favqulodda yagona tarjima
+        still_missing = [it for it in items if not (result_map.get(it["id"]) or result_map.get(str(it["id"])))]
+        for it in still_missing:
+            orig = sanitize_text(it.get("original_text") or it.get("text", ""))
+            em_tr = self._translate_single_item_emergency(orig, is_cyrillic)
+            if em_tr and em_tr != orig:
+                result_map[it["id"]] = em_tr
+                result_map[str(it["id"])] = em_tr
+
+        # 4. Yakuniy natijalarni yig'ish
+        results = []
+        for it in items:
+            item_id = it["id"]
+            orig = sanitize_text(it.get("original_text") or it.get("text", ""))
+            tr_found = result_map.get(item_id) or result_map.get(str(item_id)) or ""
+            
+            if tr_found and tr_found.strip():
+                results.append({"id": item_id, "translated_text": tr_found})
+            else:
+                em_tr = self._translate_single_item_emergency(orig, is_cyrillic)
+                results.append({"id": item_id, "translated_text": em_tr if em_tr else orig})
+
+        return results
+
+    def _translate_via_gemini(self, items: List[Dict[str, Any]], system_instruction: str, is_cyrillic: bool) -> Dict[str, str]:
+        """Gemini orqali batch tarjima."""
+        if not items:
+            return {}
+        prompt_payload = [
+            {"id": it["id"], "text": sanitize_text(it.get("original_text") or it.get("text", ""))}
+            for it in items
+        ]
+        user_content = json.dumps(prompt_payload, ensure_ascii=False, indent=2)
+        res_map = {}
+        for cur_model in self.model_candidates:
             try:
                 response = self.client.models.generate_content(
                     model=cur_model,
                     contents=user_content,
                     config=types.GenerateContentConfig(
                         system_instruction=system_instruction,
-                        temperature=0.2,
+                        temperature=0.1,
                         response_mime_type="application/json"
                     )
                 )
-
                 raw_text = response.text.strip()
                 raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
                 raw_text = re.sub(r"\s*```$", "", raw_text)
-
+                m = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
+                if m:
+                    raw_text = m.group(0)
                 try:
-                    parsed = json.loads(raw_text)
+                    import json_repair
+                    parsed = json_repair.loads(raw_text)
                 except Exception:
-                    m = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
-                    if m:
-                        parsed = json.loads(m.group(0))
-                    else:
-                        raise
+                    parsed = json.loads(raw_text)
+
                 if isinstance(parsed, list):
                     for row in parsed:
                         if isinstance(row, dict) and "id" in row:
                             t_val = row.get("translated") or row.get("translated_text") or row.get("text") or ""
                             clean_t = sanitize_text(t_val)
-                            # Kirill kerak bo'lsa transliteratsiya bilan mustahkamlash
                             if is_cyrillic:
                                 clean_t = ensure_script(clean_t, "cyrillic")
-                            result_map[row["id"]] = clean_t
-                if result_map:
-                    break
+                            res_map[row["id"]] = clean_t
+                            res_map[str(row["id"])] = clean_t
+                if res_map:
+                    logger.info("Gemini orqali muvaffaqiyatli tarjima qilindi (%s, %d ta element)", cur_model, len(res_map) // 2)
+                    return res_map
             except Exception as e:
-                last_exception = e
-                err_str = str(e).lower()
-                if "api_key_invalid" in err_str or "api key not valid" in err_str or ("400" in err_str and "api key" in err_str):
-                    logger.error("Gemini API kaliti yaroqsiz: %s", e)
-                    raise ValueError("Gemini API kaliti yaroqsiz yoki Google tomonidan rad etildi! Iltimos, to'g'ri kalit kiriting.")
+                logger.warning("Gemini model %s xatosi: %s", cur_model, e)
+                time.sleep(1.0)
+        return res_map
 
-                wait_sec = 1.5 * (2 ** attempt)
-                logger.warning("Gemini chaqiruvi muvaffaqiyatsiz (urinish %d/%d): %s. Kutish: %.1fs",
-                               attempt + 1, max_retries, e, wait_sec)
-                time.sleep(wait_sec)
+    def _translate_single_item_emergency(self, text: str, is_cyrillic: bool) -> str:
+        """Kichik favqulodda yagona matn tarjimasi (Groq yoki Gemini orqali)."""
+        if not text or not text.strip():
+            return ""
+        clean_in = sanitize_text(text)
+        script_name = "O'zbek tili (Lotin)" if not is_cyrillic else "Ўзбек тили (Кирилл)"
 
-        # Muvaffaqiyatsiz bo'lgan elementlar uchun zaxira (fallback)
-        results = []
-        for it in items:
-            item_id = it["id"]
-            orig = sanitize_text(it.get("original_text") or it.get("text", ""))
-            if item_id in result_map and result_map[item_id].strip():
-                results.append({"id": item_id, "translated_text": result_map[item_id]})
-            else:
-                # Zaxira: deep_translator yoki asl matn
-                tr = ""
-                try:
-                    from deep_translator import GoogleTranslator
-                    gt = GoogleTranslator(source="auto", target="uz")
-                    tr = gt.translate(orig) if orig else ""
-                except Exception:
-                    pass
-                val = tr or orig
-                if is_cyrillic:
-                    val = ensure_script(val, "cyrillic")
-                results.append({"id": item_id, "translated_text": sanitize_text(val)})
+        # 1. Groq orqali urinish
+        groq_key = os.environ.get("GROQ_API_KEY")
+        if groq_key:
+            import requests
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
+            payload = {
+                "model": "qwen/qwen3.8-27b",
+                "messages": [
+                    {"role": "system", "content": f"Siz professional tarjimonsiz. Ushbu jumlani {script_name}ga akademik va tabiiy tarjima qiling. Faqat tarjimani qaytaring, boshqa hech narsa yozmang."},
+                    {"role": "user", "content": clean_in}
+                ],
+                "temperature": 0.1,
+                "max_tokens": 150
+            }
+            try:
+                r = requests.post(url, headers=headers, json=payload, timeout=20)
+                if r.status_code == 200:
+                    res_txt = r.json()["choices"][0]["message"]["content"].strip().strip('\'"`').strip()
+                    if res_txt:
+                        return sanitize_text(res_txt)
+            except Exception:
+                pass
 
-        return results
+        # 2. Gemini orqali urinish
+        for m in self.model_candidates:
+            try:
+                res = self.client.models.generate_content(
+                    model=m,
+                    contents=f"Ushbu matnni {script_name}ga professional akademik tarjima qiling. Faqat tarjima matnini o'zini qaytaring: \"{clean_in}\""
+                )
+                out = res.text.strip().strip('\'"`').strip()
+                if out:
+                    return sanitize_text(out)
+            except Exception:
+                continue
+
+        return clean_in
+
+    def _translate_via_groq(self, items: List[Dict[str, Any]], system_instruction: str, is_cyrillic: bool) -> Dict[str, str]:
+        groq_key = os.environ.get("GROQ_API_KEY")
+        if not groq_key or not items:
+            return {}
+        import requests
+        try:
+            import json_repair
+        except ImportError:
+            json_repair = None
+
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {groq_key}",
+            "Content-Type": "application/json"
+        }
+        prompt_payload = [
+            {"id": it["id"], "text": sanitize_text(it.get("original_text") or it.get("text", ""))}
+            for it in items
+        ]
+        user_content = json.dumps(prompt_payload, ensure_ascii=False, indent=2)
+        models = ["qwen/qwen3.8-27b"]
+        for m in models:
+            try:
+                payload = {
+                    "model": m,
+                    "messages": [
+                        {"role": "system", "content": system_instruction + "\nMUHIM: Faqat to'g'ridan-to'g'ri JSON massiv qaytaring: [{\"id\": \"...\", \"translated\": \"...\"}]. Boshqa so'z qo'shmang."},
+                        {"role": "user", "content": user_content}
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 1500
+                }
+                r = requests.post(url, headers=headers, json=payload, timeout=25)
+                if r.status_code == 429:
+                    logger.info("Groq 429 rate limit (%s). Zudlik bilan Gemini ga topshirilmoqda...", m)
+                    return {}
+                if r.status_code == 200:
+                    raw_text = r.json()["choices"][0]["message"]["content"].strip()
+                    raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+                    raw_text = re.sub(r"\s*```$", "", raw_text)
+                    m_match = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
+                    if m_match:
+                        raw_text = m_match.group(0)
+                    
+                    parsed = None
+                    try:
+                        parsed = json.loads(raw_text)
+                    except Exception:
+                        if json_repair:
+                            try:
+                                parsed = json_repair.repair_json(raw_text, return_objects=True)
+                            except Exception:
+                                pass
+
+                    res_map = {}
+                    if isinstance(parsed, list):
+                        for row in parsed:
+                            if isinstance(row, dict) and "id" in row:
+                                t_val = row.get("translated") or row.get("translated_text") or row.get("text") or ""
+                                clean_t = sanitize_text(t_val)
+                                if is_cyrillic:
+                                    clean_t = ensure_script(clean_t, "cyrillic")
+                                res_map[row["id"]] = clean_t
+                                res_map[str(row["id"])] = clean_t
+                    elif isinstance(parsed, dict):
+                        for list_key in ["items", "translations", "result", "data"]:
+                            if list_key in parsed and isinstance(parsed[list_key], list):
+                                for row in parsed[list_key]:
+                                    if isinstance(row, dict) and "id" in row:
+                                        t_val = row.get("translated") or row.get("translated_text") or row.get("text") or ""
+                                        clean_t = sanitize_text(t_val)
+                                        if is_cyrillic:
+                                            clean_t = ensure_script(clean_t, "cyrillic")
+                                        res_map[row["id"]] = clean_t
+                                        res_map[str(row["id"])] = clean_t
+                                break
+
+                    if res_map and len(res_map) > 0:
+                        logger.info("Groq orqali muvaffaqiyatli tarjima qilindi (%s, %d ta element)", m, len(res_map) // 2)
+                        return res_map
+            except Exception as ge:
+                logger.warning("Groq modeli %s xatosi: %s", m, ge)
+
+        return {}
+
+
+
+
 
     def translate_single_text(self, text: str, target_script: str = "latin") -> str:
         """Yagona satrni (masalan fayl sarlavhasini) toza o'zbek tiliga o'giradi."""
@@ -349,6 +493,43 @@ QOIDALAR:
 
 Matn: "{clean_in}\""""
 
+        # 1. Birinchi navbatda Groq orqali to'g'ri va professional o'zbekcha nom olamiz
+        groq_key = os.environ.get("GROQ_API_KEY")
+        if groq_key:
+            import requests
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
+            payload = {
+                "model": "qwen/qwen3.8-27b",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Fayl mavzusi / sarlavhasi: '{clean_in}'.\n"
+                            f"Ushbu taqdimot sarlavhasini {script_name}da ixcham, tabiiy, savodli va tushunarli qilib tarjima qiling.\n"
+                            f"QOIDALAR:\n"
+                            f"1. FAQAT tarjima qilingan sarlavha nomini qaytaring, boshqa hech narsa yozmang.\n"
+                            f"2. Pastki chiziq (_) yoki keraksiz qavslar qo'ymang.\n"
+                            f"3. Ruscha so'zlarni qoldirmang, to'liq o'zbekcha bo'lsin."
+                        )
+                    }
+                ],
+                "temperature": 0.1,
+                "max_tokens": 70
+            }
+            try:
+                r = requests.post(url, headers=headers, json=payload, timeout=20)
+                if r.status_code == 200:
+                    out = r.json()["choices"][0]["message"]["content"].strip().strip('\'"`').strip()
+                    out = re.sub(r'(\s*[-_]?\s*(tarjima|ozbekcha|ўзбекча)[a-z]*)$', '', out, flags=re.IGNORECASE)
+                    out = re.sub(r'[/\\:*?"<>|_]', ' ', out)
+                    out = re.sub(r'\s+', ' ', out).strip()
+                    if out and len(out) > 2:
+                        return ensure_script(out, target_script) if is_cyrillic else out
+            except Exception:
+                pass
+
+        # 2. Gemini orqali urinish
         for model in self.model_candidates:
             try:
                 res = self.client.models.generate_content(

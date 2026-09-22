@@ -6,9 +6,7 @@ from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
 from core.models import SlideData, MilestoneNode, ColorRGB
 
-def hex_to_rgb(hex_code: str) -> RGBColor:
-    c = ColorRGB.from_hex(hex_code)
-    return RGBColor(c.r, c.g, c.b)
+from core.utils.colors import hex_to_rgb
 
 def build_roadmap_timeline(slide, slide_data: SlideData, width_in: float = 13.333, height_in: float = 7.5):
     """

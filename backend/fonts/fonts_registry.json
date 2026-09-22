@@ -1110,5 +1110,610 @@
     "name": "Barlow Black",
     "type": "system",
     "file": null
+  },
+  "arial unicode ms": {
+    "name": "Arial Unicode MS",
+    "type": "system",
+    "file": null
+  },
+  "sitka display": {
+    "name": "Sitka Display",
+    "type": "system",
+    "file": null
+  },
+  "batang": {
+    "name": "Batang",
+    "type": "system",
+    "file": null
+  },
+  "microsoft sans serif": {
+    "name": "Microsoft Sans Serif",
+    "type": "system",
+    "file": null
+  },
+  "glock grotesk black": {
+    "name": "Glock Grotesk Black",
+    "type": "system",
+    "file": null
+  },
+  "hk grotesk medium": {
+    "name": "HK Grotesk Medium",
+    "type": "system",
+    "file": null
+  },
+  "calibri light": {
+    "name": "Calibri Light",
+    "type": "system",
+    "file": null
+  },
+  "helioscond": {
+    "name": "HeliosCond",
+    "type": "system",
+    "file": null
+  },
+  "&quot": {
+    "name": "&quot",
+    "type": "system",
+    "file": null
+  },
+  "monotype corsiva": {
+    "name": "Monotype Corsiva",
+    "type": "system",
+    "file": null
+  },
+  "inherit": {
+    "name": "inherit",
+    "type": "system",
+    "file": null
+  },
+  "roboto slab": {
+    "name": "Roboto Slab",
+    "type": "custom",
+    "file": "Roboto_Slab.ttf",
+    "url": "https://fonts.gstatic.com/s/robotoslab/v36/BngbUXZYTXPIvIBgJJSb6s3BzlRRfKOFbvjojISmb2RmV9Ku1Q.ttf",
+    "size_kb": 27.18
+  },
+  "franklin gothic book": {
+    "name": "Franklin Gothic Book",
+    "type": "system",
+    "file": null
+  },
+  "bookman old style": {
+    "name": "Bookman Old Style",
+    "type": "custom",
+    "file": "Bookman_Old_Style.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=MjQcmj92u_H-ux7vrpbgHLHRzMYMlfBgInch27Te&skey=525c12327fbbcec7&v=v10",
+    "size_kb": 24.67
+  },
+  "garamond": {
+    "name": "Garamond",
+    "type": "custom",
+    "file": "Garamond.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=XoHl2Y_-T6Oo88RDZSQKn9cDlDLo&skey=a3a4b3361b12223a&v=v18",
+    "size_kb": 36.44
+  },
+  "cascadia code": {
+    "name": "Cascadia Code",
+    "type": "custom",
+    "file": "Cascadia_Code.ttf",
+    "url": "https://fonts.gstatic.com/s/cascadiacode/v5/qWc_B6-zq5zxD57cT5s916v3QjfzRuG9AIUcXuUMOZDIZd5la2CB.ttf",
+    "size_kb": 55.76
+  },
+  "timesuz": {
+    "name": "TimesUZ",
+    "type": "system",
+    "file": null
+  },
+  "cambria": {
+    "name": "Cambria",
+    "type": "custom",
+    "file": "Cambria.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=GFDqWAB9jnWLT-HIK7ILq5haOAw&skey=d4699178559bc4b0&v=v18",
+    "size_kb": 40.12
+  },
+  "constantia": {
+    "name": "Constantia",
+    "type": "custom",
+    "file": "Constantia.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=L0x4DF8glV8Z-BmfyLPDXS9si1C0V7o&skey=d5629a58df22c8b4&v=v20",
+    "size_kb": 43.47
+  },
+  "vectors_times": {
+    "name": "Vectors_Times",
+    "type": "system",
+    "file": null
+  },
+  "script mt bold": {
+    "name": "Script MT Bold",
+    "type": "system",
+    "file": null
+  },
+  "modern no. 20": {
+    "name": "Modern No. 20",
+    "type": "system",
+    "file": null
+  },
+  "rockwell extra bold": {
+    "name": "Rockwell Extra Bold",
+    "type": "system",
+    "file": null
+  },
+  "sylfaen": {
+    "name": "Sylfaen",
+    "type": "system",
+    "file": null
+  },
+  "garamond premr pro smbd": {
+    "name": "Garamond Premr Pro Smbd",
+    "type": "system",
+    "file": null
+  },
+  "book antiqua": {
+    "name": "Book Antiqua",
+    "type": "custom",
+    "file": "Book_Antiqua.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=S6u6w4hCXyjDv1h-L2beaUb46v01xPZQ1g&skey=53198ebebffbde2&v=v11",
+    "size_kb": 25.65
+  },
+  "arial rounded mt bold": {
+    "name": "Arial Rounded MT Bold",
+    "type": "system",
+    "file": null
+  },
+  "__inter_fallback_83a52c": {
+    "name": "__Inter_Fallback_83a52c",
+    "type": "system",
+    "file": null
+  },
+  "aboreto": {
+    "name": "Aboreto",
+    "type": "custom",
+    "file": "Aboreto.ttf",
+    "url": "https://fonts.gstatic.com/s/aboreto/v2/5DCXAKLhwDDQ4N8bpKPUB06t1Sc.ttf",
+    "size_kb": 22.07
+  },
+  "quattrocento": {
+    "name": "Quattrocento",
+    "type": "custom",
+    "file": "Quattrocento.ttf",
+    "url": "https://fonts.gstatic.com/s/quattrocento/v24/OZpEg_xvsDZQL_LKIF7q4jP3w2j_XYvVuQ.ttf",
+    "size_kb": 58.07
+  },
+  "corben": {
+    "name": "Corben",
+    "type": "custom",
+    "file": "Corben.ttf",
+    "url": "https://fonts.gstatic.com/s/corben/v23/LYjDdGzzklQtCMpNpwNAh1gnVA.ttf",
+    "size_kb": 26.76
+  },
+  "nobile": {
+    "name": "Nobile",
+    "type": "custom",
+    "file": "Nobile.ttf",
+    "url": "https://fonts.gstatic.com/s/nobile/v19/m8JTjflSeaOVl1iGWa3TWrZNbg.ttf",
+    "size_kb": 21.12
+  },
+  "nobile medium": {
+    "name": "Nobile Medium",
+    "type": "system",
+    "file": null
+  },
+  "nobile bold": {
+    "name": "Nobile Bold",
+    "type": "system",
+    "file": null
+  },
+  "myriad pro semibold": {
+    "name": "Myriad Pro Semibold",
+    "type": "system",
+    "file": null
+  },
+  "myriad pro": {
+    "name": "Myriad Pro",
+    "type": "system",
+    "file": null
+  },
+  "helvetica": {
+    "name": "Helvetica",
+    "type": "custom",
+    "file": "Helvetica.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=JIAxUVNqfH9WuVQQRM4zVxOiPzMveA&skey=22efecd2bc0e2cb0&v=v10",
+    "size_kb": 23.78
+  },
+  "adonis": {
+    "name": "Adonis",
+    "type": "system",
+    "file": null
+  },
+  "-apple-system": {
+    "name": "-apple-system",
+    "type": "system",
+    "file": null
+  },
+  "opensans": {
+    "name": "OpenSans",
+    "type": "system",
+    "file": null
+  },
+  "rupster script free": {
+    "name": "Rupster Script Free",
+    "type": "system",
+    "file": null
+  },
+  "museosans": {
+    "name": "MuseoSans",
+    "type": "system",
+    "file": null
+  },
+  "algerian": {
+    "name": "Algerian",
+    "type": "custom",
+    "file": "Algerian.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=XoHl2Y_4Qras7MJMbyQKn9cDlDLo&skey=bd53e77feedd2bf7&v=v13",
+    "size_kb": 35.21
+  },
+  "franklin gothic demi": {
+    "name": "Franklin Gothic Demi",
+    "type": "system",
+    "file": null
+  },
+  "bahnschrift light condensed": {
+    "name": "Bahnschrift Light Condensed",
+    "type": "system",
+    "file": null
+  },
+  "helveticaneuecyr": {
+    "name": "HelveticaNeueCyr",
+    "type": "system",
+    "file": null
+  },
+  "bahnschrift semibold semiconden": {
+    "name": "Bahnschrift SemiBold SemiConden",
+    "type": "system",
+    "file": null
+  },
+  "bahnschrift light semicondensed": {
+    "name": "Bahnschrift Light SemiCondensed",
+    "type": "system",
+    "file": null
+  },
+  "gilroy": {
+    "name": "Gilroy",
+    "type": "system",
+    "file": null
+  },
+  "calibri (body)": {
+    "name": "Calibri (Body)",
+    "type": "system",
+    "file": null
+  },
+  "pt astra serif": {
+    "name": "PT Astra Serif",
+    "type": "system",
+    "file": null
+  },
+  "bradley hand itc": {
+    "name": "Bradley Hand ITC",
+    "type": "system",
+    "file": null
+  },
+  "castellar": {
+    "name": "Castellar",
+    "type": "system",
+    "file": null
+  },
+  "arial-boldmt": {
+    "name": "Arial-BoldMT",
+    "type": "system",
+    "file": null
+  },
+  "arialmt": {
+    "name": "ArialMT",
+    "type": "system",
+    "file": null
+  },
+  "colonna mt": {
+    "name": "Colonna MT",
+    "type": "system",
+    "file": null
+  },
+  "batangche": {
+    "name": "BatangChe",
+    "type": "system",
+    "file": null
+  },
+  "montserrat semi": {
+    "name": "Montserrat Semi",
+    "type": "system",
+    "file": null
+  },
+  "poppins light": {
+    "name": "Poppins Light",
+    "type": "system",
+    "file": null
+  },
+  "candara": {
+    "name": "Candara",
+    "type": "custom",
+    "file": "Candara.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=ZGjXol5EQIAt4qtKWCpbUBFeCDo&skey=74ff4129a25a060b&v=v12",
+    "size_kb": 28.12
+  },
+  "tunga": {
+    "name": "Tunga",
+    "type": "system",
+    "file": null
+  },
+  "cavolini": {
+    "name": "Cavolini",
+    "type": "system",
+    "file": null
+  },
+  "arial nova": {
+    "name": "Arial Nova",
+    "type": "system",
+    "file": null
+  },
+  "palatino linotype": {
+    "name": "Palatino Linotype",
+    "type": "custom",
+    "file": "Palatino_Linotype.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=Pby5Fnj8HgvdtL7UgYNVKDX5oieYjYITmWcZzCpx&skey=a7bbb29f8e80de7b&v=v12",
+    "size_kb": 35.37
+  },
+  "segoe print": {
+    "name": "Segoe Print",
+    "type": "system",
+    "file": null
+  },
+  "dx-rigraf": {
+    "name": "DX-Rigraf",
+    "type": "system",
+    "file": null
+  },
+  "dx-rigraf extlt": {
+    "name": "DX-Rigraf ExtLt",
+    "type": "system",
+    "file": null
+  },
+  "dx-rigraf light ita": {
+    "name": "DX-Rigraf Light Ita",
+    "type": "system",
+    "file": null
+  },
+  "dx-rigraf black": {
+    "name": "DX-Rigraf Black",
+    "type": "system",
+    "file": null
+  },
+  "arial (основной текст)": {
+    "name": "Arial (Основной текст)",
+    "type": "system",
+    "file": null
+  },
+  "baskerville": {
+    "name": "Baskerville",
+    "type": "system",
+    "file": null
+  },
+  "helvetica neue": {
+    "name": "Helvetica Neue",
+    "type": "custom",
+    "file": "Helvetica_Neue.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=jAnfgHBgCsv4eNLTaMECf8DQsNS7exW-fGAj&skey=4ad46dd97873f7d7&v=v17",
+    "size_kb": 25.93
+  },
+  "symbol": {
+    "name": "Symbol",
+    "type": "system",
+    "file": null
+  },
+  "gill sans mt": {
+    "name": "Gill Sans MT",
+    "type": "system",
+    "file": null
+  },
+  "noto sans": {
+    "name": "noto sans",
+    "type": "system",
+    "file": null
+  },
+  "courier10pitchbt-roman": {
+    "name": "Courier10PitchBT-Roman",
+    "type": "system",
+    "file": null
+  },
+  "dilleniaupc": {
+    "name": "DilleniaUPC",
+    "type": "system",
+    "file": null
+  },
+  "times-roman": {
+    "name": "Times-Roman",
+    "type": "system",
+    "file": null
+  },
+  "courier": {
+    "name": "Courier",
+    "type": "custom",
+    "file": "Courier.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=i7dKIFtyYSaNG9A_JrmecGxeSFI&skey=415f62b718dd1a36&v=v12",
+    "size_kb": 19.69
+  },
+  "bradley hand bold": {
+    "name": "Bradley Hand Bold",
+    "type": "system",
+    "file": null
+  },
+  "b nazanin": {
+    "name": "B Nazanin",
+    "type": "system",
+    "file": null
+  },
+  "fira sans extra condensed": {
+    "name": "Fira Sans Extra Condensed",
+    "type": "custom",
+    "file": "Fira_Sans_Extra_Condensed.ttf",
+    "url": "https://fonts.gstatic.com/s/firasansextracondensed/v11/NaPKcYDaAO5dirw6IaFn7lPJFqXmS-M9Atn3wgda1f-uv1WcrE4.ttf",
+    "size_kb": 44.94
+  },
+  "courier ce": {
+    "name": "Courier CE",
+    "type": "system",
+    "file": null
+  },
+  "ヒラギノ角ゴ pro w3": {
+    "name": "ヒラギノ角ゴ Pro W3",
+    "type": "system",
+    "file": null
+  },
+  "timesnewromanpsmt": {
+    "name": "TimesNewRomanPSMT",
+    "type": "system",
+    "file": null
+  },
+  "times-bold": {
+    "name": "Times-Bold",
+    "type": "system",
+    "file": null
+  },
+  "times": {
+    "name": "Times",
+    "type": "custom",
+    "file": "Times.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=Jqzt5TCISOWcBhgP_YgoFcXC&skey=e66b135641f02eb9&v=v9",
+    "size_kb": 33.96
+  },
+  "gill sans": {
+    "name": "Gill Sans",
+    "type": "custom",
+    "file": "Gill_Sans.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=VEMzRo11tZHs8hG7tPa9yxTlhvmCuA&skey=b796ffb12c919a00&v=v16",
+    "size_kb": 19.27
+  },
+  "engraversgothic bt regular": {
+    "name": "EngraversGothic BT Regular",
+    "type": "system",
+    "file": null
+  },
+  "mtmib": {
+    "name": "MTMIB",
+    "type": "system",
+    "file": null
+  },
+  "times-bolditalic": {
+    "name": "Times-BoldItalic",
+    "type": "system",
+    "file": null
+  },
+  "cambria math": {
+    "name": "Cambria Math",
+    "type": "custom",
+    "file": "Cambria_Math.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=oY1Z8e7Mq7rzInrFtqBWfrxlbKUZBFWVAA&skey=ed5c17cba3eb2ed&v=v16",
+    "size_kb": 47.05
+  },
+  "mtmi": {
+    "name": "MTMI",
+    "type": "system",
+    "file": null
+  },
+  "segoe": {
+    "name": "Segoe",
+    "type": "system",
+    "file": null
+  },
+  "phenomena": {
+    "name": "Phenomena",
+    "type": "system",
+    "file": null
+  },
+  "sitka subheading": {
+    "name": "Sitka Subheading",
+    "type": "system",
+    "file": null
+  },
+  "libre franklin": {
+    "name": "Libre Franklin",
+    "type": "custom",
+    "file": "Libre_Franklin.ttf",
+    "url": "https://fonts.gstatic.com/s/librefranklin/v20/jizOREVItHgc8qDIbSTKq4XkRg8T88bjFuXOnduhLsWkANDMTeFX1w.ttf",
+    "size_kb": 34.51
+  },
+  "corbel": {
+    "name": "Corbel",
+    "type": "custom",
+    "file": "Corbel.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=3XFrErYg3YwI9Pf2MNUPvWPuRQ&skey=4ccfc0116d3989f9&v=v12",
+    "size_kb": 34.05
+  },
+  "timesnewromanps-bolditalicmt": {
+    "name": "TimesNewRomanPS-BoldItalicMT",
+    "type": "system",
+    "file": null
+  },
+  "futura bk bt": {
+    "name": "Futura Bk BT",
+    "type": "system",
+    "file": null
+  },
+  "arno pro smbd": {
+    "name": "Arno Pro Smbd",
+    "type": "system",
+    "file": null
+  },
+  "century schoolbook": {
+    "name": "Century Schoolbook",
+    "type": "custom",
+    "file": "Century_Schoolbook.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=HTxxL3A_ID2an4clN7OG5Om-denKlH3j2FH2lqsLag&skey=76541ebefe710340&v=v10",
+    "size_kb": 22.98
+  },
+  "bahnschrift": {
+    "name": "Bahnschrift",
+    "type": "system",
+    "file": null
+  },
+  "ptserifregular": {
+    "name": "PTSerifRegular",
+    "type": "system",
+    "file": null
+  },
+  "goudy old style": {
+    "name": "Goudy Old Style",
+    "type": "system",
+    "file": null
+  },
+  "adobe caslon pro": {
+    "name": "Adobe Caslon Pro",
+    "type": "system",
+    "file": null
+  },
+  "open sans light": {
+    "name": "Open Sans Light",
+    "type": "system",
+    "file": null
+  },
+  "betinascriptctt": {
+    "name": "BetinaScriptCTT",
+    "type": "system",
+    "file": null
+  },
+  "century": {
+    "name": "Century",
+    "type": "custom",
+    "file": "Century.ttf",
+    "url": "https://fonts.gstatic.com/l/font?kit=ga6NawBE72VIoDSm7biLbHo0ZRA&skey=a410f150778116d2&v=v12",
+    "size_kb": 26.9
+  },
+  "arbat": {
+    "name": "Arbat",
+    "type": "system",
+    "file": null
+  },
+  "broadway": {
+    "name": "Broadway",
+    "type": "system",
+    "file": null
   }
 }

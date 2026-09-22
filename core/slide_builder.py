@@ -6,9 +6,7 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
 
-def hex_to_rgb(hex_code):
-    h = hex_code.lstrip('#')
-    return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+from core.utils.colors import hex_to_rgb
 
 class SlideBuilder:
     def __init__(self, prs):

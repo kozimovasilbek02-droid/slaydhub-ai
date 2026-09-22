@@ -1,0 +1,94 @@
+
+==================== SLIDE 1 (Title Slide) ====================
+Shape 0: TextBox 3 (type=TEXT_BOX (17)) pos=(377.0,207.9) size=(289.2,73.9)
+   TEXT: 'Auditoriyaga zamonaviy axborot xavfsizligining mavjud matematik bazasi kvant tahdidlari qarshisida tanazzulga yuz tutayotganini keskin ilmiy dalillar...'
+Shape 1: TextBox 1 (type=TEXT_BOX (17)) pos=(33.8,19.5) size=(652.5,75.1)
+   TEXT: 'Kvant Hisoblash Paradigmasi Zamonaviy Asimmetrik Kriptografiyaning Fundamental Poydevorini Butunlay Barbod qilmoqda'
+
+==================== SLIDE 2 (Title Slide) ====================
+Shape 0: Title 2 (type=PLACEHOLDER (14)) pos=(33.8,0.0) size=(518.4,99.6)
+   TEXT: 'RSA va Elliptik Egri Chiziq Kriptografiyasi (ECC) Diskret Logarifm Masalasining Kvant Yechimi Oldida Ojiz Qolmoqda'
+Shape 1: Rounded Rectangle 3 (type=AUTO_SHAPE (1)) pos=(33.8,111.6) size=(652.5,82.7)
+   TEXT: "ECC Xavfsizlik Darajasining Pasayishi\nKrivoy va nuqtalar ustida qo'shish amallariga tayanuvchi elliptik egri chiziqlar (masalan, secp256k1) Gauss davriyligini aniqlash evaziga klassik davrga nisbatan eksponensial tezlikda buziladi."
+Shape 2: Rounded Rectangle 4 (type=AUTO_SHAPE (1)) pos=(33.8,204.8) size=(652.5,82.7)
+   TEXT: "Asosiy Qonuniyat / Formula\nRSA Algoritmining Zaifligi: Katta tub sonlarni ko'paytirishga asoslangan $N = p \\times q$ faktorizatsiya masalasi Peter Shor tomonidan yaratilgan kvant davriy funksiya topish algoritmi orqali polinomial vaqtda yechiladi."
+Shape 3: Rounded Rectangle 5 (type=AUTO_SHAPE (1)) pos=(33.8,298.0) size=(652.5,82.7)
+   TEXT: "Ilmiy va Amaliy Ahamiyati\nAsimmetrik shifrlashning klassik matematik g'ovlari kvant superkompyuterlari uchun nega oddiy hisob-kitobga aylanishini chuqur tahlil qilish."
+
+==================== SLIDE 3 (Title Slide) ====================
+Shape 0: Title 2 (type=PLACEHOLDER (14)) pos=(33.8,0.0) size=(518.4,99.6)
+   TEXT: 'Kvant Superkompyuterlarining Hisoblash Quvvati va Xotira Resurslari Eskirgan Kriptografik Kalitlarni Bir Necha Soat Ichida Yanchib Tashlamoqda'
+Shape 1: Rounded Rectangle 3 (type=AUTO_SHAPE (1)) pos=(33.8,111.6) size=(211.5,180.0)
+   TEXT: "STEP 01\nShor Algoritmining Resurs Sig'imi\n2048-bitli RSA kalitini buzish uchun aniq 4,099 ta fizik kubit va 20 millionga yaqin shovqinsiz Toffoli mantiqiy darvozalari ketma-ketligi talab qilinadi."
+Shape 2: Rounded Rectangle 4 (type=AUTO_SHAPE (1)) pos=(254.2,111.6) size=(211.5,180.0)
+   TEXT: 'STEP 02\nVaqt Metrikalari Taqqosi\nKlassik superkompyuterda million yillar davom etadigan brute-force hisob-kitoblar ideal 20 million fizika kubitli kvant protsessorida atigi 8 soat 14 daqiqada yakunlanadi.'
+Shape 3: Rounded Rectangle 5 (type=AUTO_SHAPE (1)) pos=(474.8,111.6) size=(211.5,180.0)
+   TEXT: 'STEP 03\nKubit Sifati va Xatolar Nisbati\nMavjud Noisy Intermediate-Scale Quantum (NISQ) qurilmalarida mantiqiy kubit yaratish uchun har 1000 ta fizik kubitga 1 ta xatolarni tuzatuvchi (surface code) kubit sarflanmoqda.'
+
+==================== SLIDE 4 (Title Slide) ====================
+Shape 0: Title 1 (type=PLACEHOLDER (14)) pos=(33.8,8.4) size=(518.4,88.2)
+   TEXT: 'Klasik Asimmetrik Algoritmlar (RSA/ECC) va Kvantga Chidamli Post-Kvant Kriptografiya (PQC) Arxitekturalarining Qiyosiy Imkoniyatlari'
+Shape 1: Rounded Rectangle 2 (type=AUTO_SHAPE (1)) pos=(33.8,108.6) size=(318.7,240.0)
+   TEXT: 'Klassik Yondashuv\n• Kalit Hajmi va Tarmoq Yuklamasi (Model A - RSA/ECC): RSA-3072 kalit uzunligi 384 baytni tashkil etib, tarmoq trafigida minimal yuklamani keltirib chiqaradi, biroq kvant.'
+Shape 2: Rounded Rectangle 3 (type=AUTO_SHAPE (1)) pos=(367.5,108.6) size=(318.7,240.0)
+   TEXT: "Matematik Asos Farqi\n• Lattices Asosidagi Himoya (Model B - ML-KEM/FIPS 203): Modul-panjara tuzilmalariga asoslangan ML-KEM-768 kalit uzunligi 1184 baytni tashkil etib, tarmoq o'tkazish qobiliyatiga ta'sir qiladi, lekin.\n• Model A sonlar nazariyasi va diskret logarifmlarga tayanib ishlasa, Model B eng yomon holatdagi panjara muammolariga (Shortest Vector Problem) asoslangan bo'lib, uning yechimi NP-qiyin."
+
+==================== SLIDE 5 (Title Slide) ====================
+Shape 0: Title 2 (type=PLACEHOLDER (14)) pos=(33.8,0.0) size=(518.4,99.6)
+   TEXT: "Ko'p Qatlamli Gibrid Kriptografik Arxitektura Trafik Xavfsizligini Ham Klassik, Ham Kvant Tahdidlaridan Bir Vaqtning O'zida Himoya qiladi"
+Shape 1: Rounded Rectangle 3 (type=AUTO_SHAPE (1)) pos=(33.8,111.6) size=(211.5,180.0)
+   TEXT: "STEP 01\nParallel Shifrlash Kanallari\nTLS 1.3 protokoli doirasida ECDH (klassik) va ML-KEM (post-kvant) kalit almashinuvi paketlarini birgalikda jo'natish orqali ikkala frontda ham xavfsizlik ta'minlanadi."
+Shape 2: Rounded Rectangle 4 (type=AUTO_SHAPE (1)) pos=(254.2,111.6) size=(211.5,180.0)
+   TEXT: 'STEP 02\nInkapsulyatsiya Mexanizmi\nKapsulalangan ssenariyda simmetrik shifrlash uchun ishlatiladigan AES-256 kalitlari ham klassik, ham post-kvant algoritmlarining umumiy natijasi asosida generatsiya qilinadi.'
+Shape 3: Rounded Rectangle 5 (type=AUTO_SHAPE (1)) pos=(474.8,111.6) size=(211.5,180.0)
+   TEXT: "STEP 03\nOrqaga Moslashuvchanlik Qatlami\nArxitektura eskirgan qurilmalar bilan ishlashda avtomatik ravishda faqat klassik rejimga tushish imkonini beruvchi xavfsiz zaxira protokollarini o'z ichiga oladi."
+
+==================== SLIDE 6 (Title Slide) ====================
+Shape 0: Title 2 (type=PLACEHOLDER (14)) pos=(33.8,0.0) size=(518.4,99.6)
+   TEXT: "Post-Kvant Kriptografiya Algoritmlarini Korporativ Tizimlarga Integratsiya Qilishning To'rt Bosqichli Hayotiy Sikli"
+Shape 1: Rounded Rectangle 3 (type=AUTO_SHAPE (1)) pos=(33.8,111.6) size=(156.4,180.0)
+   TEXT: "STEP 01\n1-Bosqich - Kriptografik Inventarizatsiya\nTizimdagi barcha aktivlar, shu jumladan SSL sertifikatlari, ma'lumotlar bazasi shifrlari va foydalanuvchi kalitlarining ekspluatatsiya qilinayotgan turlarini to'liq aniqlash."
+Shape 2: Rounded Rectangle 4 (type=AUTO_SHAPE (1)) pos=(199.1,111.6) size=(156.4,180.0)
+   TEXT: 'STEP 02\n2-Bosqich - Zaiflik Auditini O\'tkazish\n"Hozir yozib ol, keyin shifrini yech" (Harvest Now, Decrypt Later) strategiyasiga duch kelishi mumkin bo\'lgan uzoq muddatli maxfiy ma\'lumotlar bazalarini xavf darajasiga ko\'ra saralash.'
+Shape 3: Rounded Rectangle 5 (type=AUTO_SHAPE (1)) pos=(364.5,111.6) size=(156.4,180.0)
+   TEXT: 'STEP 03\n3-Bosqich - Gibrid Sinov Muhiti\nSinov tarmoqlarida NIST FIPS 203 va FIPS 204 standartlarini joriy etib, CPU yuklamasi va paket kechikishlarini (latency) metrik tahlil qilish.'
+Shape 4: Rounded Rectangle 6 (type=AUTO_SHAPE (1)) pos=(529.9,111.6) size=(156.4,180.0)
+   TEXT: "STEP 04\n4-Bosqich - To'liq Ishga Tushirish\nKlassik algoritmlardan butunlay voz kechib, faqat sof post-kvant protokollari asosida ishlaydigan mustaqil va barqaror infratuzilmaga o'tish."
+
+==================== SLIDE 7 (Title Slide) ====================
+Shape 0: Title 2 (type=PLACEHOLDER (14)) pos=(33.8,0.0) size=(518.4,99.6)
+   TEXT: "2024–2030 yillarga Mo'ljallangan Xalqaro Kvant Xavfsizligi va Migratsiya Strategiyasining Global Yo'l Xaritasi"
+Shape 1: Rounded Rectangle 3 (type=AUTO_SHAPE (1)) pos=(33.8,111.6) size=(211.5,180.0)
+   TEXT: 'STEP 01\n2024-2025 yillar - Standartlarni Ratifikatsiya Qilish\nNIST tomonidan tasdiqlangan FIPS 203 (ML-KEM), FIPS 204 (ML-DSA) va FIPS 205 (SLH-DSA) hujjatlarini milliy qonunchilik va texnik reglamentlarga kiritish.'
+Shape 2: Rounded Rectangle 4 (type=AUTO_SHAPE (1)) pos=(254.2,111.6) size=(211.5,180.0)
+   TEXT: "STEP 02\n2026-2028 yillar - Muhim Infratuzilmalarni Ko'chirish\nBank sektori, energetika tarmoqlari va telekommunikatsiya operatorlarining magistral tarmoqlarini gibrid kriptografik protokollarga bosqichma-bosqich o'tkazish."
+Shape 3: Rounded Rectangle 5 (type=AUTO_SHAPE (1)) pos=(474.8,111.6) size=(211.5,180.0)
+   TEXT: "STEP 03\n2029-2030 yillar - Legacy Tizimlarni To'liq O'chirish\nKlassik RSA va ECC algoritmlarini qo'llab-quvvatlashni operatsion tizimlar, brauzerlar va apparat moduli darajasida qat'iy ravishda taqiqlash."
+
+==================== SLIDE 8 (Title Slide) ====================
+Shape 0: Title 2 (type=PLACEHOLDER (14)) pos=(33.8,0.0) size=(518.4,99.6)
+   TEXT: 'Post-Kvant Algoritmlarining Katta Kalit Hajmi va Resurs Talabi Tarmoq Kechikishlarini Keltirib Chiqarmoqda'
+Shape 1: Rounded Rectangle 3 (type=AUTO_SHAPE (1)) pos=(33.8,111.6) size=(211.5,180.0)
+   TEXT: "STEP 01\nTarmoq O'tkazish Qobiliyati Muammosi\nPQC kalitlarning o'lchami klassik kalitlarga nisbatan 10 barobar katta bo'lib, TCP paket parchalanishiga (fragmentation) sabab bo'lmoqda."
+Shape 2: Rounded Rectangle 4 (type=AUTO_SHAPE (1)) pos=(254.2,111.6) size=(211.5,180.0)
+   TEXT: "STEP 02\nProtsessor Resurslarining Yuqori Sarfi\nPanjara matritsalari ustida bajariluvchi ko'p o'lchovli ko'paytirish amallari IoT qurilmalarining energiya sarfini o'rtacha 25% ga oshirmoqda."
+Shape 3: Rounded Rectangle 5 (type=AUTO_SHAPE (1)) pos=(474.8,111.6) size=(211.5,180.0)
+   TEXT: 'STEP 03\nOptimizatsiya Yechimi\nMatematik hisob-kitoblarni tezlashtirish uchun maxsus apparat tezlatgichlari (FPGA va ASIC asosidagi kriptografik chiplar) va NTT (Number Theoretic Transform) usullaridan foydalanish.'
+
+==================== SLIDE 9 (Title Slide) ====================
+Shape 0: Title 2 (type=PLACEHOLDER (14)) pos=(33.8,0.0) size=(518.4,99.6)
+   TEXT: "O'zbekiston Milliy Universiteti Axborot Xavfsizligi Kafedrasining Sinov Tarmoqlarida Olib Borilgan PQC Test Sinovlari Natijalari"
+Shape 1: Rounded Rectangle 3 (type=AUTO_SHAPE (1)) pos=(33.8,111.6) size=(210.5,165.0)
+   TEXT: "10\nImtihon Stendining Parametrlar\nImtihon Stendining Parametrlari: Xeon Scalable protsessorlari va Gbps tarmoq interfeysida o'tkazilgan testlarda ML-KEM-512 protokoli soniyasiga 45,000 ta kalit almashinuvini ta'minladi."
+Shape 2: Rounded Rectangle 4 (type=AUTO_SHAPE (1)) pos=(254.8,111.6) size=(210.5,165.0)
+   TEXT: "0.001%\nXavfsizlik va Barqarorlik Ko'r\nXavfsizlik va Barqarorlik Ko'rsatkichi: Gibrid rejimda ishlash vaqtida paketlar yo'qolishi (packet loss) ko'rsatkichi dan past darajada saqlanib qoldi va xotira sizib chiqishi kuzatilmadi."
+Shape 3: Rounded Rectangle 5 (type=AUTO_SHAPE (1)) pos=(475.8,111.6) size=(210.5,165.0)
+   TEXT: "100%\nAparat Moslashuvi: Algoritmlar\nAparat Moslashuvi: Algoritmlar cheklangan resursli mikrokontrollerlarda ham muvaffaqiyatli sinovdan o'tkazilib, ularning real vaqt rejimida ishlash qobiliyati amalda isbotlandi."
+
+==================== SLIDE 10 (Title Slide) ====================
+Shape 0: Title 2 (type=PLACEHOLDER (14)) pos=(33.8,0.0) size=(518.4,99.6)
+   TEXT: "Kvant Tahdidlari Davrida Axborot Xavfsizligini Saqlab Qolishning Yagona Yo'li Post-Kvant Kriptografiyaga Zudlik Bilan O'tishdir"
+Shape 1: Rounded Rectangle 3 (type=AUTO_SHAPE (1)) pos=(33.8,111.6) size=(652.5,129.3)
+   TEXT: '🎯 Asosiy Ilmiy Xulosalar\n• Matematik Muqarrarmi? Ha: Klassik asimmetrik kriptografiyaning matematik asosi kvant hisoblashning eksponensial ustunligi qarshisida to\'liq tugadi va uning o\'rnini faqat panjara va kodlarga asoslangan usullar egallaydi.\n• Vaqt Faktorining Kritikiyligi: "Hozir yozib ol, keyin shifrini yech" xavfi sababli, tashkilotlar migratsiyani kvant kompyuterlari to\'liq qurilishini kutmasdan, aynan bugun boshlashi shart.'
+Shape 2: Rounded Rectangle 4 (type=AUTO_SHAPE (1)) pos=(33.8,251.4) size=(652.5,129.3)
+   TEXT: "📚 Foydalanilgan Adabiyotlar\n📖 Akademik Hamkorlik Zaruriyati: O'zbekistonda raqamli suverenitetni ta'minlash uchun milliy kriptografik standartlarni xalqaro NIST talablariga mos ravishda ishlab chiqish va ilmiy kadrlarni tayyorlash ustuvor vazifadir."

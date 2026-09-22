@@ -1,50 +1,181 @@
+# -*- coding: utf-8 -*-
+"""
+cli.py
+SlaydHub AI — Professional Academic Presentation Studio CLI
+Allows generating high-end PPTX presentations directly from the command line.
+
+Usage examples:
+  1. Generate from topic using AI:
+     python cli.py --topic "Kvant kompyuterlari va asimmetrik kriptografiya" --slides 10 --engine harmonized
+
+  2. Generate from NotebookLM Markdown file:
+     python cli.py --markdown notes.md --topic "Kvant kompyuterlari" --engine harmonized -o output/deck.pptx
+
+  3. Get NotebookLM research prompt:
+     python cli.py --prompt-only --topic "Kiberxavfsizlik" --slides 10
+"""
+
 import os
+import sys
 import argparse
-from core.models import PresentationProject
-from core.vision_parser import VisionSlideParser
-from core.pptx_generator import PPTXGenerator
+from pathlib import Path
+
+# Configure Windows console to UTF-8 to prevent charmap UnicodeEncodeError
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+from core.config import config
+from core.academic_matcher import get_academic_matcher
+from core.notebooklm_markdown_parser import NotebookLMMarkdownParser
+from core.notebooklm_prompt_gen import NotebookLMPromptGenerator
+from core.template_pptx_builder import get_academic_pptx_builder
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert Slide Images (.jpg/.png) into 100% Editable PowerPoint Presentation (.pptx)")
-    parser.add_argument("input_path", help="Path to an image file or folder containing slide images")
-    parser.add_argument("-o", "--output", default="output/converted_presentation.pptx", help="Path to output .pptx file")
-    parser.add_argument("--api-key", default=None, help="Google Gemini API key for AI vision parsing")
-    parser.add_argument("--ratio", choices=["16:9", "4:3"], default="16:9", help="Presentation aspect ratio")
+    parser = argparse.ArgumentParser(
+        description="SlaydHub AI — Professional Native PPTX Presentation Studio CLI"
+    )
     
-    args = parser.parse_args()
-
-    images = []
-    if os.path.isfile(args.input_path):
-        images.append(args.input_path)
-    elif os.path.isdir(args.input_path):
-        for f in sorted(os.listdir(args.input_path)):
-            if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-                images.append(os.path.join(args.input_path, f))
-
-    if not images:
-        print("No slide images found!")
-        return
-
-    print(f"Found {len(images)} slide image(s). Decompiling into editable PPTX...")
-    parser_ai = VisionSlideParser(api_key=args.api_key)
-    slides = []
-    
-    for i, img_path in enumerate(images):
-        print(f"Processing slide [{i+1}/{len(images)}]: {img_path}...")
-        slide_data = parser_ai.parse_image(img_path)
-        slide_data.slide_index = i + 1
-        slides.append(slide_data)
-
-    project = PresentationProject(
-        presentation_title="Converted Presentation",
-        aspect_ratio=args.ratio,
-        slides=slides
+    parser.add_argument(
+        "--topic", "-t",
+        type=str,
+        default="Kvant kompyuterlari va asimmetrik kriptografiya",
+        help="Presentation topic / research title"
+    )
+    parser.add_argument(
+        "--slides", "-s",
+        type=int,
+        default=10,
+        help="Number of slides to generate (default: 10)"
+    )
+    parser.add_argument(
+        "--markdown", "-m",
+        type=str,
+        default=None,
+        help="Path to Markdown file exported from NotebookLM or Gemini"
+    )
+    parser.add_argument(
+        "--engine", "-e",
+        choices=["harmonized", "multi_master", "modular_stacker"],
+        default="harmonized",
+        help="Assembly engine: harmonized (recommended), multi_master, or modular_stacker"
+    )
+    parser.add_argument(
+        "--lang",
+        choices=["uz", "ru", "en"],
+        default="uz",
+        help="Presentation language (default: uz)"
+    )
+    parser.add_argument(
+        "--output", "-o",
+        type=str,
+        default=None,
+        help="Output PPTX path (default: output/academic_studio/{topic}_Customized.pptx)"
+    )
+    parser.add_argument(
+        "--prompt-only",
+        action="store_true",
+        help="Print the compact NotebookLM prompt and exit"
+    )
+    parser.add_argument(
+        "--use-gemini",
+        action="store_true",
+        help="Generate 10-slide content automatically using Gemini AI API"
     )
 
-    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-    generator = PPTXGenerator(aspect_ratio=args.ratio)
-    generator.generate_presentation(project, args.output)
-    print(f"Successfully generated: {args.output}")
+    args = parser.parse_args()
+
+    # 1. Blueprint matching
+    print(f"\n🎓 SlaydHub AI: Initializing presentation for topic: '{args.topic}'...")
+    matcher = get_academic_matcher()
+    bp = matcher.build_blueprint(
+        topic=args.topic,
+        slide_count=args.slides,
+        language=args.lang
+    )
+
+    # 2. Prompt-only mode
+    if args.prompt_only:
+        prompt = NotebookLMPromptGenerator.generate_compact_markdown_prompt(
+            topic=args.topic,
+            domain=bp.get("category_name", "Akademik / Ilmiy"),
+            lang=args.lang
+        )
+        print("\n" + "=" * 60)
+        print("📌 NOTEBOOKLM RESEARCH PROMPT:")
+        print("=" * 60)
+        print(prompt)
+        print("=" * 60 + "\n")
+        return
+
+    # 3. Obtain Content (from file, gemini, or default blueprint)
+    raw_markdown = ""
+    if args.markdown:
+        md_p = Path(args.markdown)
+        if not md_p.exists():
+            print(f"❌ Error: Markdown file not found at: {md_p}")
+            sys.exit(1)
+        print(f"📖 Reading NotebookLM content from: {md_p}...")
+        with open(md_p, "r", encoding="utf-8") as f:
+            raw_markdown = f.read()
+    elif args.use_gemini:
+        print("🤖 Generating 10-slide academic content via Gemini AI...")
+        try:
+            raw_markdown = NotebookLMPromptGenerator.generate_with_gemini_direct(
+                topic=args.topic,
+                domain=bp.get("category_name", "Akademik / Ilmiy"),
+                lang=args.lang
+            )
+        except Exception as e:
+            print(f"❌ Error calling Gemini API: {e}")
+            print("Falling back to structured template blueprint...")
+
+    # 4. Parse content or build from blueprint
+    if raw_markdown.strip():
+        parsed = NotebookLMMarkdownParser.parse(raw_markdown, topic=args.topic)
+    else:
+        # Generate clean structured content directly from blueprint hints
+        slides_list = []
+        for s in bp.get("slides", []):
+            slides_list.append({
+                "slide_number": s["slide_number"],
+                "layout_type": s.get("layout_type", "cards_grid"),
+                "title": s.get("title_hint", f"{s['slide_number']}-Slayd"),
+                "subtitle": "",
+                "purpose": f"{s.get('layout_name', '')} doirasida ilmiy tahlil",
+                "theses": [
+                    f"{args.topic} bo'yicha asosiy tahliliy aspekt.",
+                    "Ilmiy-amaliy ahamiyati va dolzarb tadqiqot natijalari.",
+                    "Xalqaro standartlar va metodologik tavsiyalar."
+                ]
+            })
+        parsed = {
+            "topic": args.topic,
+            "total_slides": len(slides_list),
+            "slides": slides_list
+        }
+
+    # 5. Assemble PPTX deck
+    print(f"🎨 Assembling presentation using engine: '{args.engine}'...")
+    builder = get_academic_pptx_builder()
+    out_file = builder.create_presentation(parsed, bp, engine_mode=args.engine)
+
+    if args.output:
+        custom_out = Path(args.output)
+        custom_out.parent.mkdir(parents=True, exist_ok=True)
+        import shutil
+        shutil.copyfile(out_file, custom_out)
+        out_file = str(custom_out)
+
+    print("\n" + "=" * 60)
+    print(f"🎉 SUCCESS! Presentation generated at:")
+    print(f"📁 {out_file}")
+    print("=" * 60 + "\n")
+
 
 if __name__ == "__main__":
     main()

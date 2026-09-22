@@ -2,6 +2,7 @@
 import os
 import sys
 import time
+import shutil
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from pptx import Presentation
@@ -52,7 +53,8 @@ class TranslatorService:
         output_pptx: str,
         target_script: str = "latin",
         progress_callback: Optional[Callable[[str], Any]] = None,
-        presentation_title: str = ""
+        presentation_title: str = "",
+        domain: str = "Taqdimot, fan, ta'lim va ilmiy tahlil"
     ) -> Dict[str, Any]:
         if not os.path.exists(input_pptx):
             raise FileNotFoundError(f"Fayl topilmadi: {input_pptx}")
@@ -71,8 +73,16 @@ class TranslatorService:
 
         if total_items == 0:
             if progress_callback:
-                await progress_callback("⚠️ Slaydda tarjima qilinadigan matn topilmadi.")
-            return {"success": False, "error": "Slaydda matn topilmadi", "output_path": None}
+                await progress_callback("⚠️ Slaydda tarjima qilinadigan matn topilmadi, to'g'ridan-to'g'ri nusxa ko'chirildi.")
+            shutil.copy2(input_pptx, output_pptx)
+            return {
+                "success": True,
+                "initial_slides": initial_slide_count,
+                "final_slides": initial_slide_count,
+                "cleaned_ad_slides": 0,
+                "total_items": 0,
+                "output_path": output_pptx
+            }
 
         if progress_callback:
             await progress_callback(
@@ -85,10 +95,10 @@ class TranslatorService:
         translated_results = self.translator.translate_items_batch(
             items=all_items,
             target_script=target_script,
-            domain="Taqdimot, fan, ta'lim va ilmiy tahlil",
+            domain=domain,
             stats=stats,
-            batch_size=35,
-            max_workers=4
+            batch_size=25,
+            max_workers=1
         )
 
         translations_map = {

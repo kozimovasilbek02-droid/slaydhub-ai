@@ -1,10 +1,7 @@
 from pptx.dml.color import RGBColor
 from pptx.util import Pt, Inches
 
-def hex_to_rgb(hex_code: str) -> RGBColor:
-    """Converts hex string like '#E53E3E' or 'E53E3E' to pptx RGBColor."""
-    h = hex_code.lstrip('#')
-    return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+from core.utils.colors import hex_to_rgb
 
 class Colors:
     # Modern Professional Palette
