@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 r"""
 core/config.py
-Centralized configuration manager for SlaydHub AI.
-Eliminates hardcoded paths (C:\Users\user...) across the project.
+Centralized configuration manager for SlaydHub Ultra.
+Eliminates hardcoded paths across the project.
 Provides dynamic path resolution based on Path.home(), project root, and .env overrides.
 """
 
@@ -35,7 +35,7 @@ class AppConfig:
     """Dynamic Application Configuration."""
 
     def __init__(self):
-        # Base project root (two levels up from this file: core/config.py -> Power Point)
+        # Base project root (core/config.py -> parent -> project root)
         self.BASE_DIR: Path = Path(__file__).resolve().parent.parent
 
         # Try to load .env from project root
@@ -55,13 +55,13 @@ class AppConfig:
         )
         self.FALLBACK_INDEX_PATH: Path = self.BASE_DIR / "core" / "academic_template_index.json"
 
-        # Blacklisted low-quality template folders (requested by user)
+        # Blacklisted low-quality template folders
         self.BLACKLISTED_FOLDERS: List[str] = [
             "tarjima_qilingan_top50",
             "yuklab_olingan_top50"
         ]
 
-        # Template Library Search Roots (Cross-platform and multi-drive compatible)
+        # Template Library Search Roots
         self.TEMPLATE_DIRS: List[str] = self._resolve_template_dirs()
 
     def _resolve_template_dirs(self) -> List[str]:
@@ -103,6 +103,34 @@ class AppConfig:
     def gemini_api_key(self) -> Optional[str]:
         """Safely returns the Gemini / Google API Key."""
         return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+    @property
+    def bot_token(self) -> Optional[str]:
+        return os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+
+    @property
+    def seller_token(self) -> Optional[str]:
+        return os.getenv("SELLER_TOKEN")
+
+    @property
+    def port(self) -> int:
+        return int(os.getenv("PORT", 10000))
+
+    @property
+    def click_service_id(self) -> str:
+        return os.getenv("CLICK_SERVICE_ID", "")
+
+    @property
+    def click_secret_key(self) -> str:
+        return os.getenv("CLICK_SECRET_KEY", "")
+
+    @property
+    def payme_merchant_key(self) -> str:
+        return os.getenv("PAYME_MERCHANT_KEY", "")
+
+    @property
+    def db_path(self) -> str:
+        return os.getenv("SLAYDHUB_DB_PATH", "slaydhub_ultra.db")
 
     def is_folder_blacklisted(self, path: str) -> bool:
         """Checks if a given path contains any blacklisted folder keywords."""
