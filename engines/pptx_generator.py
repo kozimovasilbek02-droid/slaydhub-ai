@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-import os
 import re
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.oxml import parse_xml
+from pptx.oxml.ns import nsdecls
 
 # ── 1. PENPOT PALITRALARI ─────────────────────────────────────────────────────
 PENPOT_PALETTES = {
@@ -76,36 +76,45 @@ UZ_ORPHAN_PREPOSITIONS_RE = re.compile(
 
 
 def apply_knuth_plass_uz_orphans(text: str) -> str:
-    """O'zbekcha bir bo'g'inli bog'lovchi va olmoshlar qator oxirida yetim qolib ketmasligi uchun \\u00A0 qo'yadi."""
+    """
+    O'zbekcha bir bo'g'inli bog'lovchi va olmoshlar qator oxirida yetim qolib ketmasligi uchun
+    uzilmas bo'shliq (\u00A0) qo'yadi. Python 3.11+ re.sub lambda orqali xatosiz ishlaydi.
+    """
     if not text:
         return ""
-    return UZ_ORPHAN_PREPOSITIONS_RE.sub(r"\1\u00A0", text)
+    return UZ_ORPHAN_PREPOSITIONS_RE.sub(lambda m: f"{m.group(1)}\u00A0", str(text))
+
+
+def apply_anti_word_break(paragraph) -> None:
+    """PowerPoint matn bloklarida o'zbekcha so'zlarning o'rtasidan uzilishini taqiqlaydi."""
+    try:
+        pPr = paragraph._p.get_or_add_pPr()
+        pPr.set("latinLnBrk", "0")
+        pPr.set("eaLnBrk", "0")
+        pPr.set("hangingPunct", "1")
+    except Exception:
+        pass
 
 
 def apply_p16_morph_transition(slide) -> None:
-    """PowerPoint p16:morph silliq o'tish effektini XML darajasida o'rnatadi."""
+    """
+    PowerPoint Office 365 p16:morph silliq o'tish effektini (mc:AlternateContent va Fade fallback bilan)
+    lxml ValueError xatosisiz to'g'ridan-to'g'ri OpenXML daraxtiga qo'shadi.
+    """
+    MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+    P16_NS = "http://schemas.microsoft.com/office/powerpoint/2015/main"
+    trans_xml = (
+        f'<p:transition {nsdecls("p")} xmlns:mc="{MC_NS}" spd="med" advClick="1">'
+        f'  <mc:AlternateContent>'
+        f'    <mc:Choice Requires="p16" xmlns:p16="{P16_NS}">'
+        f'      <p16:morph option="byObject"/>'
+        f'    </mc:Choice>'
+        f'    <mc:Fallback><p:fade/></mc:Fallback>'
+        f'  </mc:AlternateContent>'
+        f'</p:transition>'
+    )
     try:
-        slide_xml = slide._element
-        mc_ignorable = slide_xml.get("{http://schemas.openxmlformats.org/markup-compatibility/2006}Ignorable", "")
-        if "p16" not in mc_ignorable:
-            slide_xml.set(
-                "{http://schemas.openxmlformats.org/markup-compatibility/2006}Ignorable",
-                (mc_ignorable + " p16").strip(),
-            )
-        ns_p16 = "{http://schemas.microsoft.com/office/powerpoint/2015/09/main}"
-        if "xmlns:p16" not in slide_xml.attrib:
-            slide_xml.set("xmlns:p16", ns_p16.strip("{}"))
-        clrMapOvr = slide_xml.find("{http://schemas.openxmlformats.org/presentationml/2006/main}clrMapOvr")
-        transition_xml = parse_xml(
-            '<p:transition xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
-            'xmlns:p16="http://schemas.microsoft.com/office/powerpoint/2015/09/main" spd="med">'
-            '<p16:morph option="byObject"/>'
-            "</p:transition>"
-        )
-        if clrMapOvr is not None:
-            clrMapOvr.addprevious(transition_xml)
-        else:
-            slide_xml.append(transition_xml)
+        slide._element.append(parse_xml(trans_xml))
     except Exception:
         pass
 
@@ -123,7 +132,12 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
     slides_data = spec.get("slides", [])
     if not slides_data:
         slides_data = [
-            {"heading": "Kirish va Dolzarblik", "archetype": "cards_grid", "points": ["Asosiy maqsad va yo'nalishlar", "Rivojlanish tendensiyalari"], "speaker_note": "Kirish nutqi"}
+            {
+                "heading": "Kirish va Dolzarblik",
+                "archetype": "cards_grid",
+                "points": ["Asosiy maqsad va yo'nalishlar", "Rivojlanish tendensiyalari"],
+                "speaker_note": "Kirish nutqi",
+            }
         ]
 
     # ── SLAYD 1: DARK HERO COVER ──────────────────────────────────────────────
@@ -135,7 +149,9 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
     bg1.fill.fore_color.rgb = palette["dark_bg"]
     bg1.line.fill.background()
 
-    pill = s1.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1.0), Inches(1.2), Inches(3.2), Inches(0.45))
+    pill = s1.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1.0), Inches(1.2), Inches(3.2), Inches(0.45)
+    )
     pill.fill.solid()
     pill.fill.fore_color.rgb = palette["primary"]
     pill.line.fill.background()
@@ -155,9 +171,10 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
     p1_t = tf1.paragraphs[0]
     p1_t.text = apply_knuth_plass_uz_orphans(spec.get("title", "Mavzu nomi"))
     p1_t.font.name = "Arial"
-    p1_t.font.size = Pt(40)
+    p1_t.font.size = Pt(38 if len(p1_t.text) < 65 else 30)
     p1_t.font.bold = True
     p1_t.font.color.rgb = palette["text_light"]
+    apply_anti_word_break(p1_t)
 
     subtitle_text = spec.get("subtitle", "")
     if subtitle_text:
@@ -167,6 +184,7 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
         p1_sub.font.size = Pt(18)
         p1_sub.font.color.rgb = palette["accent"]
         p1_sub.space_before = Pt(14)
+        apply_anti_word_break(p1_sub)
 
     s1.notes_slide.notes_text_frame.text = f"Muqova: {spec.get('title')}. Taqdimot rejasiga kirish."
 
@@ -193,6 +211,7 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
     p2_head.font.size = Pt(28)
     p2_head.font.bold = True
     p2_head.font.color.rgb = palette["text_dark"]
+    apply_anti_word_break(p2_head)
 
     agenda_items = [slide.get("heading", f"Mavzu {i+1}") for i, slide in enumerate(slides_data)]
     half = (len(agenda_items) + 1) // 2
@@ -212,8 +231,11 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
             p.font.bold = True
             p.font.color.rgb = palette["text_dark"]
             p.space_after = Pt(14)
+            apply_anti_word_break(p)
 
-    s2.notes_slide.notes_text_frame.text = "Taqdimot mundarijasi va ko'riladigan asosiy masalalar sharhi."
+    s2.notes_slide.notes_text_frame.text = (
+        "Taqdimot mundarijasi va ko'riladigan asosiy masalalar sharhi."
+    )
 
     # ── SLAYD 3..N: ASOSIY MAZMUN (ARCHETYPES) ────────────────────────────────
     for idx, slide_info in enumerate(slides_data, 1):
@@ -230,8 +252,9 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
         t_bar.fill.fore_color.rgb = palette["accent"]
         t_bar.line.fill.background()
 
-        # Tracker
-        badge = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1.0), Inches(0.6), Inches(2.5), Inches(0.35))
+        badge = s.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1.0), Inches(0.6), Inches(2.5), Inches(0.35)
+        )
         badge.fill.solid()
         badge.fill.fore_color.rgb = palette["primary"]
         badge.line.fill.background()
@@ -243,7 +266,6 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
         b_p.font.color.rgb = palette["text_light"]
         b_p.alignment = PP_ALIGN.CENTER
 
-        # Sarlavha
         h_tb = s.shapes.add_textbox(Inches(1.0), Inches(1.1), Inches(11.333), Inches(1.0))
         h_tf = h_tb.text_frame
         h_tf.word_wrap = True
@@ -253,19 +275,21 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
         h_p.font.size = Pt(24)
         h_p.font.bold = True
         h_p.font.color.rgb = palette["text_dark"]
+        apply_anti_word_break(h_p)
 
         archetype = slide_info.get("archetype", "cards_grid")
         points = slide_info.get("points", [])
         if not points:
             points = ["Asosiy ma'lumot", "Tahlil va natijalar"]
 
-        # Kartochkalar chizish
         if archetype == "comparison_vs" and len(points) >= 2:
             card_w = Inches(5.3)
             card_h = Inches(4.5)
             lefts = [Inches(1.0), Inches(6.8)]
             for c_i, p_txt in enumerate(points[:2]):
-                c = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, lefts[c_i], Inches(2.2), card_w, card_h)
+                c = s.shapes.add_shape(
+                    MSO_SHAPE.ROUNDED_RECTANGLE, lefts[c_i], Inches(2.2), card_w, card_h
+                )
                 c.fill.solid()
                 c.fill.fore_color.rgb = palette["card_bg"]
                 c.line.color.rgb = palette["card_border"]
@@ -284,12 +308,15 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
                 cp2.font.size = Pt(14)
                 cp2.font.color.rgb = palette["text_dark"]
                 cp2.space_before = Pt(12)
+                apply_anti_word_break(cp2)
 
         elif archetype == "timeline_steps" and len(points) >= 3:
             step_w = Inches(3.4)
             for c_i, p_txt in enumerate(points[:3]):
                 c_left = Inches(1.0 + c_i * 3.9)
-                c = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, c_left, Inches(2.4), step_w, Inches(4.2))
+                c = s.shapes.add_shape(
+                    MSO_SHAPE.ROUNDED_RECTANGLE, c_left, Inches(2.4), step_w, Inches(4.2)
+                )
                 c.fill.solid()
                 c.fill.fore_color.rgb = palette["card_bg"]
                 c.line.color.rgb = palette["card_border"]
@@ -308,14 +335,16 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
                 cp2.font.size = Pt(13)
                 cp2.font.color.rgb = palette["text_dark"]
                 cp2.space_before = Pt(10)
+                apply_anti_word_break(cp2)
 
         else:
-            # Standart Cards Grid (2 yoki 3 ustun)
             count = min(3, len(points))
             w = Inches(11.0 / count)
             for c_i, p_txt in enumerate(points[:count]):
                 c_left = Inches(1.0 + c_i * (11.333 / count))
-                c = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, c_left, Inches(2.3), w, Inches(4.3))
+                c = s.shapes.add_shape(
+                    MSO_SHAPE.ROUNDED_RECTANGLE, c_left, Inches(2.3), w, Inches(4.3)
+                )
                 c.fill.solid()
                 c.fill.fore_color.rgb = palette["card_bg"]
                 c.line.color.rgb = palette["card_border"]
@@ -323,7 +352,7 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
                 ctf = c.text_frame
                 ctf.word_wrap = True
                 cp = ctf.paragraphs[0]
-                cp.text = f"№ {c_i+1}"
+                cp.text = f"#{c_i+1}"
                 cp.font.name = "Arial"
                 cp.font.size = Pt(12)
                 cp.font.bold = True
@@ -334,10 +363,12 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
                 cp2.font.size = Pt(13.5)
                 cp2.font.color.rgb = palette["text_dark"]
                 cp2.space_before = Pt(10)
+                apply_anti_word_break(cp2)
 
-        # Spiker nutqi
         sp_note = slide_info.get("speaker_note", "")
-        s.notes_slide.notes_text_frame.text = sp_note or f"{slide_info.get('heading')} mavzusi bo'yicha ilmiy sharh."
+        s.notes_slide.notes_text_frame.text = (
+            sp_note or f"{slide_info.get('heading')} mavzusi bo'yicha ilmiy sharh."
+        )
 
     # ── YAKUNIY SLAYD: OUTRO ──────────────────────────────────────────────────
     s_end = prs.slides.add_slide(blank_layout)

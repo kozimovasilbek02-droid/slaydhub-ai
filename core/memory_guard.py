@@ -4,11 +4,10 @@ import gc
 import time
 import ctypes
 import asyncio
-import tempfile
 from dataclasses import dataclass, field
-from typing import Callable, Any, Awaitable, Dict
+from typing import Callable, Any, Awaitable, Dict, Optional
 
-# Linux glibc arenalarini cheklash (Render.com konteyneri uchun)
+# Linux glibc arenalarini cheklash (Render.com 512MB RAM konteyneri uchun)
 os.environ.setdefault("MALLOC_ARENA_MAX", "2")
 os.environ.setdefault("MALLOC_TRIM_THRESHOLD_", "65536")
 
@@ -44,9 +43,14 @@ def release_c_and_python_memory() -> None:
 
 async def run_ram_heavy_sync(func: Callable, *args, **kwargs) -> Any:
     """
-    Sinxron C/XML funksiyalarini (fitz, python-docx, python-pptx)
+    Sinxron C/XML funksiyalarini (fitz, python-docx, python-pptx, reportlab)
     faqat RAM_COMPUTE_LOCK ichida, alohida oqimda bajaradi va darhol RAMni tozalaydi.
+    DIQQAT: Bu funksiyaga faqat sinxron (def) funksiya uzatilishi shart!
     """
+    if asyncio.iscoroutinefunction(func):
+        raise TypeError(
+            f"run_ram_heavy_sync faqat sinxron funksiyalarni qabul qiladi, '{func.__name__}' esa async korutina!"
+        )
     async with RAM_COMPUTE_LOCK:
         try:
             return await asyncio.to_thread(func, *args, **kwargs)
@@ -104,7 +108,8 @@ class SlaydHubTaskScheduler:
     """Render 512MB RAM uchun In-Process Priority Queue va Worker tizimi."""
 
     def __init__(self, max_queue_size: int = 50, concurrency: int = 2):
-        self.queue: asyncio.PriorityQueue[PrioritizedJob] = asyncio.PriorityQueue(maxsize=max_queue_size)
+        self.queue: Optional[asyncio.PriorityQueue[PrioritizedJob]] = None
+        self.max_queue_size = max_queue_size
         self.concurrency = concurrency
         self._workers: list[asyncio.Task] = []
         self._running = False
@@ -112,11 +117,14 @@ class SlaydHubTaskScheduler:
     async def start(self) -> None:
         if self._running:
             return
+        self.queue = asyncio.PriorityQueue(maxsize=self.max_queue_size)
         self._running = True
         for i in range(self.concurrency):
             self._workers.append(asyncio.create_task(self._worker_loop(i)))
 
     async def submit(self, priority: int, job_id: str, coro_factory: Callable[[], Awaitable[Any]]) -> Any:
+        if not self._running or self.queue is None:
+            await self.start()
         loop = asyncio.get_running_loop()
         fut = loop.create_future()
         job = PrioritizedJob(
@@ -130,6 +138,7 @@ class SlaydHubTaskScheduler:
         return await fut
 
     async def _worker_loop(self, worker_id: int) -> None:
+        assert self.queue is not None
         while self._running:
             job = await self.queue.get()
             try:
@@ -147,3 +156,8 @@ class SlaydHubTaskScheduler:
         self._running = False
         for w in self._workers:
             w.cancel()
+        self._workers.clear()
+
+
+# Global Singleton Scheduler (barcha handlerlar foydalanishi uchun)
+GLOBAL_SCHEDULER = SlaydHubTaskScheduler(max_queue_size=50, concurrency=2)

@@ -2,18 +2,22 @@
 import os
 import time
 import json
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any
 import aiosqlite
 
-DEFAULT_DB_PATH = os.getenv("SLAYDHUB_DB_PATH", "slaydhub_ultra.db")
 
-async def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
+def get_db_path() -> str:
+    return os.getenv("SLAYDHUB_DB_PATH", "slaydhub_ultra.db")
+
+
+async def init_db(db_path: Optional[str] = None) -> None:
     """SQLite WAL rejimida foydalanuvchilar, tranzaksiyalar va qoralama jadvallarini ishga tushiradi."""
-    async with aiosqlite.connect(db_path) as db:
+    target_db = db_path or get_db_path()
+    async with aiosqlite.connect(target_db) as db:
         await db.execute("PRAGMA journal_mode=WAL;")
         await db.execute("PRAGMA synchronous=NORMAL;")
         await db.execute("PRAGMA busy_timeout=5000;")
-        
+
         # 1. Foydalanuvchilar jadvali (balans, keshbek, referal)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -26,7 +30,7 @@ async def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
                 created_at INTEGER NOT NULL
             );
         """)
-        
+
         # 2. To'lov tranzaksiyalari (Click va Payme)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS payment_transactions (
@@ -59,23 +63,26 @@ async def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
         await db.commit()
 
 
-async def get_or_create_user(user_id: int, referred_by: Optional[int] = None, db_path: str = DEFAULT_DB_PATH) -> Dict[str, Any]:
+async def get_or_create_user(
+    user_id: int, referred_by: Optional[int] = None, db_path: Optional[str] = None
+) -> Dict[str, Any]:
     """Foydalanuvchini oladi yoki yangisini yaratib beradi (referal mukofotlari bilan)."""
-    async with aiosqlite.connect(db_path) as db:
+    target_db = db_path or get_db_path()
+    async with aiosqlite.connect(target_db) as db:
         db.row_factory = aiosqlite.Row
+        await db.execute("BEGIN IMMEDIATE;")
         cur = await db.execute("SELECT * FROM users WHERE user_id = ?;", (user_id,))
         row = await cur.fetchone()
         if row:
+            await db.commit()
             return dict(row)
 
         now = int(time.time())
-        # Agar yangi foydalanuvchi referal orqali kirgan bo'lsa
         valid_ref = None
         if referred_by and referred_by != user_id:
             cur_ref = await db.execute("SELECT user_id FROM users WHERE user_id = ?;", (referred_by,))
             if await cur_ref.fetchone():
                 valid_ref = referred_by
-                # Taklif qilgan kishining hisobini yangilash
                 await db.execute("""
                     UPDATE users
                     SET referral_count = referral_count + 1,
@@ -94,10 +101,14 @@ async def get_or_create_user(user_id: int, referred_by: Optional[int] = None, db
         return dict(new_row) if new_row else {}
 
 
-async def credit_user_with_cashback(user_id: int, amount_uzs: int, cashback_percent: float = 0.10, db_path: str = DEFAULT_DB_PATH) -> None:
+async def credit_user_with_cashback(
+    user_id: int, amount_uzs: int, cashback_percent: float = 0.10, db_path: Optional[str] = None
+) -> None:
     """Foydalanuvchiga to'lov summasi va 10% keshbekni atomik qo'shish."""
+    target_db = db_path or get_db_path()
     cashback = int(amount_uzs * cashback_percent)
-    async with aiosqlite.connect(db_path) as db:
+    async with aiosqlite.connect(target_db) as db:
+        await db.execute("BEGIN IMMEDIATE;")
         await db.execute("""
             UPDATE users
             SET balance_uzs = balance_uzs + ? + ?,
@@ -107,42 +118,77 @@ async def credit_user_with_cashback(user_id: int, amount_uzs: int, cashback_perc
         await db.commit()
 
 
-async def debit_user_balance(user_id: int, amount_uzs: int, db_path: str = DEFAULT_DB_PATH) -> bool:
+async def debit_user_balance(user_id: int, amount_uzs: int, db_path: Optional[str] = None) -> bool:
     """Balansdan xizmat narxini yechib olish. Yetarli bo'lsa True, aks holda False."""
-    async with aiosqlite.connect(db_path) as db:
+    target_db = db_path or get_db_path()
+    async with aiosqlite.connect(target_db) as db:
         await db.execute("BEGIN IMMEDIATE;")
-        cur = await db.execute("SELECT balance_uzs, free_slide_credits FROM users WHERE user_id = ?;", (user_id,))
+        cur = await db.execute("SELECT balance_uzs FROM users WHERE user_id = ?;", (user_id,))
         row = await cur.fetchone()
         if not row:
             await db.rollback()
             return False
-        balance, free_credits = row[0], row[1]
+        balance = row[0]
         if balance >= amount_uzs:
-            await db.execute("UPDATE users SET balance_uzs = balance_uzs - ? WHERE user_id = ?;", (amount_uzs, user_id))
+            await db.execute(
+                "UPDATE users SET balance_uzs = balance_uzs - ? WHERE user_id = ?;",
+                (amount_uzs, user_id),
+            )
             await db.commit()
             return True
         await db.rollback()
         return False
 
 
-async def use_free_credit(user_id: int, db_path: str = DEFAULT_DB_PATH) -> bool:
+async def refund_user_balance(user_id: int, amount_uzs: int, db_path: Optional[str] = None) -> None:
+    """Generatsiya xatolik bilan tugaganda foydalanuvchi balansini qaytarish."""
+    target_db = db_path or get_db_path()
+    async with aiosqlite.connect(target_db) as db:
+        await db.execute("BEGIN IMMEDIATE;")
+        await db.execute(
+            "UPDATE users SET balance_uzs = balance_uzs + ? WHERE user_id = ?;",
+            (amount_uzs, user_id),
+        )
+        await db.commit()
+
+
+async def use_free_credit(user_id: int, db_path: Optional[str] = None) -> bool:
     """Bepul slayd kreditidan foydalanish."""
-    async with aiosqlite.connect(db_path) as db:
+    target_db = db_path or get_db_path()
+    async with aiosqlite.connect(target_db) as db:
         await db.execute("BEGIN IMMEDIATE;")
         cur = await db.execute("SELECT free_slide_credits FROM users WHERE user_id = ?;", (user_id,))
         row = await cur.fetchone()
         if row and row[0] > 0:
-            await db.execute("UPDATE users SET free_slide_credits = free_slide_credits - 1 WHERE user_id = ?;", (user_id,))
+            await db.execute(
+                "UPDATE users SET free_slide_credits = free_slide_credits - 1 WHERE user_id = ?;",
+                (user_id,),
+            )
             await db.commit()
             return True
         await db.rollback()
         return False
 
 
-async def save_draft(user_id: int, doc_type: str, title: str, stage: str, data: Dict[str, Any], db_path: str = DEFAULT_DB_PATH) -> None:
+async def refund_free_credit(user_id: int, db_path: Optional[str] = None) -> None:
+    """Generatsiya xatolik bilan tugaganda bepul kreditni joyiga qaytarish."""
+    target_db = db_path or get_db_path()
+    async with aiosqlite.connect(target_db) as db:
+        await db.execute("BEGIN IMMEDIATE;")
+        await db.execute(
+            "UPDATE users SET free_slide_credits = free_slide_credits + 1 WHERE user_id = ?;",
+            (user_id,),
+        )
+        await db.commit()
+
+
+async def save_draft(
+    user_id: int, doc_type: str, title: str, stage: str, data: Dict[str, Any], db_path: Optional[str] = None
+) -> None:
+    target_db = db_path or get_db_path()
     now = int(time.time())
     data_str = json.dumps(data, ensure_ascii=False)
-    async with aiosqlite.connect(db_path) as db:
+    async with aiosqlite.connect(target_db) as db:
         await db.execute("""
             INSERT OR REPLACE INTO user_drafts (user_id, doc_type, title, stage, data_json, updated_at)
             VALUES (?, ?, ?, ?, ?, ?);
@@ -150,10 +196,13 @@ async def save_draft(user_id: int, doc_type: str, title: str, stage: str, data: 
         await db.commit()
 
 
-async def get_draft(user_id: int, doc_type: str, db_path: str = DEFAULT_DB_PATH) -> Optional[Dict[str, Any]]:
-    async with aiosqlite.connect(db_path) as db:
+async def get_draft(user_id: int, doc_type: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    target_db = db_path or get_db_path()
+    async with aiosqlite.connect(target_db) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM user_drafts WHERE user_id = ? AND doc_type = ?;", (user_id, doc_type))
+        cur = await db.execute(
+            "SELECT * FROM user_drafts WHERE user_id = ? AND doc_type = ?;", (user_id, doc_type)
+        )
         row = await cur.fetchone()
         if not row:
             return None
@@ -165,7 +214,10 @@ async def get_draft(user_id: int, doc_type: str, db_path: str = DEFAULT_DB_PATH)
         return res
 
 
-async def delete_draft(user_id: int, doc_type: str, db_path: str = DEFAULT_DB_PATH) -> None:
-    async with aiosqlite.connect(db_path) as db:
-        await db.execute("DELETE FROM user_drafts WHERE user_id = ? AND doc_type = ?;", (user_id, doc_type))
+async def delete_draft(user_id: int, doc_type: str, db_path: Optional[str] = None) -> None:
+    target_db = db_path or get_db_path()
+    async with aiosqlite.connect(target_db) as db:
+        await db.execute(
+            "DELETE FROM user_drafts WHERE user_id = ? AND doc_type = ?;", (user_id, doc_type)
+        )
         await db.commit()

@@ -7,6 +7,7 @@ import random
 import asyncio
 from typing import List, Dict, Any, Tuple, Optional
 import aiohttp
+from core.memory_guard import NETWORK_IO_SEMAPHORE
 
 # ── 1. MODELLAR KASKADI VA CIRCUIT BREAKER ────────────────────────────────────
 GEMINI_MODELS_CASCADE = [
@@ -17,9 +18,16 @@ GEMINI_MODELS_CASCADE = [
     "gemini-4-argon",
 ]
 
-# 404 olgan eskirgan modellarni 1 soat davomida so'rov yubormaslik uchun kesh
 DEAD_MODELS_CACHE: Dict[str, float] = {}
 DEAD_MODEL_TTL_SECONDS = 3600
+
+# Soff.uz haqiqiy kategoriya ID lari
+SOFF_CATEGORIES_PROMPT_NOTE = (
+    "Kategoriya ID lari: Tibbiyot=1478, Pedagogika=1463, Fizika=1433, Tarix=1475, "
+    "Iqtisodiyot=1442, Informatika=1440, Adabiyot=1418, Kimyo=1445, Biologiya=1423, "
+    "Matematika=3215, Ingliz tili=1441, Texnika=1477, Psixologiya=3359, Geografiya=1436, Huquq=1439."
+)
+
 
 # ── 2. JSON REPAIR FUNKSIYASI ─────────────────────────────────────────────────
 def repair_truncated_json(broken_json: str) -> str:
@@ -30,7 +38,6 @@ def repair_truncated_json(broken_json: str) -> str:
     if s.endswith(","):
         s = s[:-1].strip()
 
-    # Ochiq qolgan qavslar hisobi
     open_curly = s.count("{") - s.count("}")
     open_square = s.count("[") - s.count("]")
 
@@ -151,18 +158,20 @@ async def call_gemini_cascade(
     max_output_tokens: int = 4096,
     temperature: float = 0.3,
     system_instruction: Optional[str] = None,
-) -> Tuple[Optional[Dict[str, Any]], str]:
+) -> Tuple[Optional[Any], str]:
     """
-    Gemini API ga asinxron so'rov yuboruvchi kaskadli funksiya.
+    Gemini API ga NETWORK_IO_SEMAPHORE orqali asinxron so'rov yuboruvchi kaskadli funksiya.
     404 da modelni zaxiraga oladi, 429/503 da exponential backoff bilan kutadi.
     """
     if not api_key:
-        api_key = os.getenv("GEMINI_API_KEY", "")
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
     if not api_key:
         return None, "GEMINI_API_KEY o'rnatilmagan"
 
     now = time.time()
-    available_models = [m for m in GEMINI_MODELS_CASCADE if now - DEAD_MODELS_CACHE.get(m, 0) > DEAD_MODEL_TTL_SECONDS]
+    available_models = [
+        m for m in GEMINI_MODELS_CASCADE if now - DEAD_MODELS_CACHE.get(m, 0) > DEAD_MODEL_TTL_SECONDS
+    ]
     if not available_models:
         available_models = ["gemini-3.1-flash-lite", "gemini-flash-latest"]
 
@@ -183,61 +192,80 @@ async def call_gemini_cascade(
 
     last_error = ""
 
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=75)) as session:
-        for model in available_models:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    async with NETWORK_IO_SEMAPHORE:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=75)) as session:
+            for model in available_models:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
 
-            for attempt in range(1, 3):
-                try:
-                    async with session.post(url, json=payload) as resp:
-                        status = resp.status
+                for attempt in range(1, 3):
+                    try:
+                        async with session.post(url, json=payload) as resp:
+                            status = resp.status
 
-                        if status == 200:
-                            data = await resp.json()
-                            candidates = data.get("candidates", [])
-                            if not candidates:
-                                last_error = f"{model}: bo'sh nomzod (xavfsizlik filtri)"
+                            if status == 200:
+                                data = await resp.json()
+                                candidates = data.get("candidates", [])
+                                if not candidates:
+                                    last_error = f"{model}: bo'sh nomzod (xavfsizlik filtri)"
+                                    break
+
+                                first_cand = candidates[0]
+                                content = first_cand.get("content", {})
+                                parts = content.get("parts", [])
+                                if not parts:
+                                    last_error = f"{model}: bo'sh part"
+                                    break
+
+                                raw_text = parts[0].get("text", "").strip()
+                                raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text, flags=re.MULTILINE)
+                                raw_text = re.sub(r"\s*```$", "", raw_text, flags=re.MULTILINE).strip()
+
+                                try:
+                                    return json.loads(raw_text), ""
+                                except json.JSONDecodeError:
+                                    repaired = repair_truncated_json(raw_text)
+                                    return json.loads(repaired), ""
+
+                            elif status == 404:
+                                DEAD_MODELS_CACHE[model] = time.time()
+                                last_error = f"Model {model} topilmadi (404), zaxiraga olindi"
                                 break
 
-                            first_cand = candidates[0]
-                            content = first_cand.get("content", {})
-                            parts = content.get("parts", [])
-                            if not parts:
-                                last_error = f"{model}: bo'sh part"
+                            elif status in (429, 503):
+                                delay = (2 ** attempt) + random.uniform(0.5, 1.5)
+                                last_error = f"{model}: HTTP {status} (Limit/Server band), {delay:.1f}s kutilmoqda"
+                                await asyncio.sleep(delay)
+                                continue
+
+                            elif status == 400 and "responseSchema" in payload["generationConfig"]:
+                                fallback_payload = {
+                                    "contents": payload["contents"],
+                                    "generationConfig": {
+                                        "temperature": temperature,
+                                        "maxOutputTokens": max_output_tokens,
+                                        "responseMimeType": "application/json",
+                                    },
+                                }
+                                async with session.post(url, json=fallback_payload) as resp2:
+                                    if resp2.status == 200:
+                                        d2 = await resp2.json()
+                                        raw2 = d2["candidates"][0]["content"]["parts"][0]["text"].strip()
+                                        return json.loads(repair_truncated_json(raw2)), ""
+                                txt = await resp.text()
+                                last_error = f"{model}: HTTP 400 — {txt[:150]}"
                                 break
 
-                            raw_text = parts[0].get("text", "").strip()
-                            raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text, flags=re.MULTILINE)
-                            raw_text = re.sub(r"\s*```$", "", raw_text, flags=re.MULTILINE).strip()
+                            else:
+                                txt = await resp.text()
+                                last_error = f"{model}: HTTP {status} — {txt[:200]}"
+                                break
 
-                            try:
-                                return json.loads(raw_text), ""
-                            except json.JSONDecodeError:
-                                repaired = repair_truncated_json(raw_text)
-                                return json.loads(repaired), ""
-
-                        elif status == 404:
-                            DEAD_MODELS_CACHE[model] = time.time()
-                            last_error = f"Model {model} topilmadi (404), zaxiraga olindi"
-                            break  # Keyingi modelga o'tish
-
-                        elif status in (429, 503):
-                            delay = (2 ** attempt) + random.uniform(0.5, 1.5)
-                            last_error = f"{model}: HTTP {status} (Limit/Server band), {delay:.1f}s kutilmoqda"
-                            await asyncio.sleep(delay)
-                            continue
-
-                        else:
-                            txt = await resp.text()
-                            last_error = f"{model}: HTTP {status} — {txt[:200]}"
-                            break
-
-                except asyncio.TimeoutError:
-                    last_error = f"{model}: 75s vaqt tugadi (Timeout)"
-                    break
-                except Exception as ex:
-                    last_error = f"{model}: Ulanish xatosi: {str(ex)}"
-                    break
+                    except asyncio.TimeoutError:
+                        last_error = f"{model}: 75s vaqt tugadi (Timeout)"
+                        break
+                    except Exception as ex:
+                        last_error = f"{model}: Ulanish xatosi: {str(ex)}"
+                        break
 
     return None, last_error
 
@@ -248,6 +276,7 @@ def build_stage1_outline_prompt(topic_or_excerpt: str, slide_count: int = 10, do
     return (
         f"Vazifa: Quyidagi mavzu/matn asosida {doc_mode.upper()} uchun aniq {slide_count} ta "
         f"mantiqiy reja bandini (agenda) o'zbek adabiy tilida (lotin yozuvida) tuzib ber.\n"
+        f"{SOFF_CATEGORIES_PROMPT_NOTE}\n"
         f"DIQQAT: Slayd matnlarini yozma, faqat qisqa va aniq reja sarlavhalarini qaytar!\n\n"
         f"Manba: {topic_or_excerpt[:2500]}"
     )
@@ -272,7 +301,7 @@ def build_stage2_locked_expansion_prompt(
         f"1. 'slides' massivida aniq {len(locked_agenda)} ta slayd bo'lishi shart — har bir reja bandiga 1 tadan!\n"
         f"2. Reja sarlavhalarini ('heading') ma'nosini o'zgartirma.\n"
         f"3. Har bir slaydda 3-4 tadan ilmiy asoslangan punkt ('points'), mos 'archetype' va qisqa 'speaker_note' yoz.\n"
-        f"4. Har bir slaydda Penpot va Knuth-Plass qoidalariga rioya qiling."
+        f"4. Har bir slaydda o'zbek adabiy tili va ilmiy uslub qoidalariga rioya qil."
     )
 
 
@@ -294,11 +323,11 @@ def build_academic_docx_prompt(topic: str, doc_type: str = "REFERAT", pages: int
 def build_dtm_quiz_prompt(topic_or_text: str, question_count: int = 10) -> str:
     """DTM standarti bo'yicha 4 variantli testlar tuzish prompti."""
     return (
-        f"Vazifa: Quyidagi mavzu yoki matn asosida O'zbekiston DTM (Bilimni baholash agentligi) "
+        f"Vazifa: Quyidagi mavzu yoki matn asosida O'zbekiston DTM (Bilim va malakalarni baholash agentligi) "
         f"standartiga mos aniq {question_count} ta 4 variantli (A, B, C, D) test savoli tuzib ber.\n"
         f"Har bir savol uchun:\n"
         f"- 'question': Aniq savol matni\n"
-        f"- 'options': 4 ta variant (aniq 4 ta element)\n"
+        f"- 'options': 4 ta variant (aniq 4 ta element, boshida 'A)' prefiksisiz sof javob matni)\n"
         f"- 'correct_index': To'g'ri javob indeksi (0, 1, 2 yoki 3)\n"
         f"- 'explanation': Nega shu javob to'g'riligi haqida qisqa ilmiy tushuntirish\n\n"
         f"Manba:\n{topic_or_text[:10000]}"

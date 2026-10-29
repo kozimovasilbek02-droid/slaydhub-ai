@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-SlaydHub Ultra (v4.0) — All-In-One Academic & Presentation Ecosystem
-Audited & Approved by Gemini 4 Argon (Lead Architect & QA Auditor)
+SlaydHub Ultra (v4.1) — All-In-One Academic & Presentation Ecosystem
+Audited, Patched & Approved by Gemini 4 Argon (Lead Architect & QA Auditor)
 Target Infrastructure: Render.com 512MB RAM Web Service, Single PORT=10000
 """
 
@@ -24,46 +24,38 @@ if hasattr(sys.stdout, "reconfigure"):
 os.environ.setdefault("MALLOC_ARENA_MAX", "2")
 os.environ.setdefault("MALLOC_TRIM_THRESHOLD_", "65536")
 
-from core.database import init_db
-from core.memory_guard import SlaydHubTaskScheduler, enforce_tmp_quota, PENDING_UPLOADS
-from billing.webhooks import handle_click_prepare, handle_click_complete, handle_payme_rpc
-from handlers.start_cabinet import router as start_cabinet_router
-from handlers.agenda_flow import router as agenda_flow_router
-from handlers.document_router import router as document_router
+# 1. Avval .env va core/config ni yuklash (import-time env muammolarini oldini oladi)
+from core.config import config  # noqa: E402
+from core.database import init_db  # noqa: E402
+from core.memory_guard import (  # noqa: E402
+    GLOBAL_SCHEDULER,
+    enforce_tmp_quota,
+    PENDING_UPLOADS,
+)
+from billing.webhooks import (  # noqa: E402
+    handle_click_prepare,
+    handle_click_complete,
+    handle_payme_rpc,
+)
+from handlers.start_cabinet import router as start_cabinet_router  # noqa: E402
+from handlers.agenda_flow import router as agenda_flow_router  # noqa: E402
+from handlers.document_router import router as document_router  # noqa: E402
 
-# ── KONFIGURATSIYA VA ENV ─────────────────────────────────────────────────────
-BOT_TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
-PORT = int(os.getenv("PORT", 10000))
 START_TIME = time.time()
-
-# Local .env fallback
-if not BOT_TOKEN:
-    for env_path in [
-        os.path.join(os.path.dirname(__file__), ".env"),
-        os.path.join(os.path.dirname(__file__), "..", ".env"),
-    ]:
-        if os.path.exists(env_path):
-            with open(env_path, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith(("BOT_TOKEN=", "TELEGRAM_BOT_TOKEN=")) and not BOT_TOKEN:
-                        BOT_TOKEN = line.split("=", 1)[1].strip().strip("\"'")
-                    elif line.startswith("GEMINI_API_KEY=") and not os.getenv("GEMINI_API_KEY"):
-                        os.environ["GEMINI_API_KEY"] = line.split("=", 1)[1].strip().strip("\"'")
-                    elif line.startswith("SELLER_TOKEN=") and not os.getenv("SELLER_TOKEN"):
-                        os.environ["SELLER_TOKEN"] = line.split("=", 1)[1].strip().strip("\"'")
 
 
 # ── YAGONA VEB-SERVER: KEEPALIVE + BILLING (PORT 10000) ───────────────────────
 async def handle_ping(request: web.Request) -> web.Response:
     """Render.com 24/7 Keepalive sog'liq tekshiruvi (< 2ms, zero-lock)."""
     uptime_sec = int(time.time() - START_TIME)
-    return web.json_response({
-        "status": "ok",
-        "service": "SlaydHub Ultra v4.0 (Argon Approved)",
-        "uptime": f"{uptime_sec // 3600}h {(uptime_sec % 3600) // 60}m {uptime_sec % 60}s",
-        "pending_uploads": len(PENDING_UPLOADS),
-    })
+    return web.json_response(
+        {
+            "status": "ok",
+            "service": "SlaydHub Ultra v4.1 (Argon QA Verified)",
+            "uptime": f"{uptime_sec // 3600}h {(uptime_sec % 3600) // 60}m {uptime_sec % 60}s",
+            "pending_uploads": len(PENDING_UPLOADS),
+        }
+    )
 
 
 async def start_unified_web_server(port: int = 10000) -> web.AppRunner:
@@ -99,26 +91,27 @@ async def background_cleanup_loop(perm_dir: str):
 # ── ASOSIY BOT ISHGA TUSHIRISH ────────────────────────────────────────────────
 async def main():
     print("=" * 65)
-    print("  🚀 SLAYDHUB ULTRA (v4.0) — PRODUCTION ENGINE")
+    print("  🚀 SLAYDHUB ULTRA (v4.1) — PRODUCTION ENGINE")
     print("  Arxitektor: Gemini 4 Argon | Infratuzilma: Render 512MB RAM")
     print("=" * 65)
 
-    if not BOT_TOKEN:
+    bot_token = config.bot_token
+    if not bot_token:
         print("[CRITICAL] BOT_TOKEN topilmadi! Render Environment Variables ga kiriting.")
         sys.exit(1)
 
     # 1. SQLite WAL ma'lumotlar bazasini ishga tushirish
-    db_path = os.getenv("SLAYDHUB_DB_PATH", "slaydhub_ultra.db")
+    db_path = config.db_path
     await init_db(db_path)
     print(f"[DB] SQLite WAL bazasi tayyor: {db_path}")
 
-    # 2. PriorityQueue vazifalar rejalashtiruvchisini boshlash
-    scheduler = SlaydHubTaskScheduler(max_queue_size=50, concurrency=2)
-    await scheduler.start()
-    print("[SCHEDULER] SlaydHub Task Scheduler (2 Workers) faollashtirildi")
+    # 2. Global PriorityQueue vazifalar rejalashtiruvchisini boshlash
+    await GLOBAL_SCHEDULER.start()
+    print("[SCHEDULER] SlaydHub GLOBAL_SCHEDULER (2 Workers, Priority 1..3) faollashtirildi")
 
     # 3. Yagona aiohttp veb-serverni ishga tushirish (PORT 10000)
-    server_runner = await start_unified_web_server(port=PORT)
+    port = config.port
+    server_runner = await start_unified_web_server(port=port)
 
     # 4. /tmp/soff_ready tozalash foni
     perm_dir = os.path.join(tempfile.gettempdir(), "soff_ready")
@@ -127,8 +120,8 @@ async def main():
 
     # 5. Aiogram 3.x bot va routerlarni ulash
     bot = Bot(
-        token=BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+        token=bot_token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher(storage=MemoryStorage())
 
@@ -142,7 +135,7 @@ async def main():
         await dp.start_polling(bot, drop_pending_updates=True)
     finally:
         cleanup_task.cancel()
-        await scheduler.stop()
+        await GLOBAL_SCHEDULER.stop()
         await server_runner.cleanup()
         await bot.session.close()
         print("[SHUTDOWN] Bot va server to'xtatildi.")
