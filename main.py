@@ -13,6 +13,14 @@ import asyncio
 import tempfile
 import requests
 import fitz  # PyMuPDF
+
+# Ensure UTF-8 output on all operating systems
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
@@ -37,14 +45,16 @@ if not SELLER_TOKEN:
         except Exception:
             pass
 
-if not GEMINI_API_KEY:
+if not GEMINI_API_KEY or not BOT_TOKEN:
     local_env_file = r"C:\Users\user\Desktop\Ish\Soff.uz\telegram_bot\.env"
     if os.path.exists(local_env_file):
         try:
             with open(local_env_file, "r", encoding="utf-8") as f:
                 for line in f:
-                    if line.startswith("GEMINI_API_KEY="):
+                    if line.startswith("GEMINI_API_KEY=") and not GEMINI_API_KEY:
                         GEMINI_API_KEY = line.split("=", 1)[1].strip()
+                    elif line.startswith("BOT_TOKEN=") and not BOT_TOKEN:
+                        BOT_TOKEN = line.split("=", 1)[1].strip()
         except Exception:
             pass
 
@@ -171,7 +181,7 @@ TALABLAR:
             }
         }
         try:
-            print(f"🤖 Gemini so'rovi yuborilmoqda (model: {model})...")
+            print(f"[AI] Gemini so'rovi yuborilmoqda (model: {model})...")
             resp = requests.post(url, json=payload, timeout=50)
             
             if resp.status_code == 200:
@@ -186,14 +196,14 @@ TALABLAR:
                 data = json.loads(clean_text)
                 presentations = data.get("presentations", [])
                 if presentations:
-                    print(f"✅ Muvaffaqiyatli: {model} orqali {len(presentations)} ta taqdimot ajratildi!")
+                    print(f"[SUCCESS] {model} orqali {len(presentations)} ta taqdimot ajratildi!")
                     return presentations, "OK"
             else:
                 last_error = f"{model} status {resp.status_code}: {resp.text[:120]}"
-                print(f"⚠️ {last_error}")
+                print(f"[WARN] {last_error}")
         except Exception as e:
             last_error = f"{model} xatosi: {e}"
-            print(f"⚠️ {last_error}")
+            print(f"[WARN] {last_error}")
 
     return [], last_error
 
@@ -464,13 +474,13 @@ async def start_web_server():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    print(f"🚀 Web Health-Check server port {PORT} da ishga tushdi.")
+    print(f"[WEB] Health-Check server port {PORT} da ishga tushdi.")
 
 # ── MAIN RUNNER ─────────────────────────────────────────────────────────────
 async def main():
-    print("🤖 SlaydHub Telegram bot ishga tushmoqda...")
+    print("[BOT] SlaydHub Telegram bot ishga tushmoqda...")
     await start_web_server()
-    print("✅ Bot polling boshlandi.")
+    print("[BOT] Polling muvaffaqiyatli boshlandi.")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
