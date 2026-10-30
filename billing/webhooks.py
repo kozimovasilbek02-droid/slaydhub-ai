@@ -6,12 +6,7 @@ import hmac
 import base64
 import hashlib
 
-try:
-    import aiosqlite
-except ImportError:
-    from core import aiosqlite_shim as aiosqlite
-    sys.modules["aiosqlite"] = aiosqlite
-
+from core import aiosqlite_shim as aiosqlite
 from aiohttp import web
 from core.database import get_db_path
 
