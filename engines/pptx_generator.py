@@ -480,9 +480,10 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
         from engines.slide_pruner import prune_presentation_file
         from core.pptx_text_replacer import replace_presentation_content
 
-        tpl_path = None
-        if tpl_id:
-            tpl_path = GLOBAL_TEMPLATE_CATALOG.resolve_template_pptx_path(tpl_id)
+        tpl_path = spec.get("resolved_pptx_path")
+        if not tpl_path or not os.path.exists(tpl_path):
+            if tpl_id:
+                tpl_path = GLOBAL_TEMPLATE_CATALOG.resolve_template_pptx_path(tpl_id)
         if not tpl_path or not os.path.exists(tpl_path):
             tpl_path = find_best_authentic_template(topic)
 

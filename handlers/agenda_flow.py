@@ -237,23 +237,26 @@ async def show_template_card(
     )
     kb = get_template_carousel_keyboard(cat_key, curr_idx, len(templates), tpl["id"])
 
-    # Muqova rasmini olish
-    thumb_path = None
-    pptx_path = GLOBAL_TEMPLATE_CATALOG.resolve_template_pptx_path(tpl["id"])
-    if pptx_path:
-        perm_dir = os.path.join(tempfile.gettempdir(), "soff_ready")
-        os.makedirs(perm_dir, exist_ok=True)
-        cand_thumb = os.path.join(perm_dir, f"thumb_{tpl['id']}.jpeg")
-        if os.path.exists(cand_thumb) or GLOBAL_TEMPLATE_CATALOG.extract_cover_thumbnail(pptx_path, cand_thumb):
-            thumb_path = cand_thumb
+    # Muqova rasmini olish (Telegram Cloud file_id yoki lokal diskdan)
+    thumb_media = None
+    if tpl.get("thumb_file_id"):
+        thumb_media = tpl["thumb_file_id"]
+    else:
+        pptx_path = GLOBAL_TEMPLATE_CATALOG.resolve_template_pptx_path(tpl["id"])
+        if pptx_path:
+            perm_dir = os.path.join(tempfile.gettempdir(), "soff_ready")
+            os.makedirs(perm_dir, exist_ok=True)
+            cand_thumb = os.path.join(perm_dir, f"thumb_{tpl['id']}.jpeg")
+            if os.path.exists(cand_thumb) or GLOBAL_TEMPLATE_CATALOG.extract_cover_thumbnail(pptx_path, cand_thumb):
+                thumb_media = FSInputFile(cand_thumb)
 
     await state.set_state(SlideCreationFSM.selecting_template)
 
     # Agar xabar rasm bo'lsa va yana rasm bo'lsa -> edit_media
-    if callback.message.photo and thumb_path:
+    if callback.message.photo and thumb_media:
         try:
             media = InputMediaPhoto(
-                media=FSInputFile(thumb_path), caption=caption, parse_mode="HTML"
+                media=thumb_media, caption=caption, parse_mode="HTML"
             )
             await callback.message.edit_media(media=media, reply_markup=kb)
             return
@@ -266,9 +269,9 @@ async def show_template_card(
     except Exception:
         pass
 
-    if thumb_path:
+    if thumb_media:
         await callback.message.answer_photo(
-            photo=FSInputFile(thumb_path),
+            photo=thumb_media,
             caption=caption,
             reply_markup=kb,
             parse_mode="HTML",
@@ -511,10 +514,14 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
         if not slides_res or "slides" not in slides_res:
             raise RuntimeError(err or "Slayd matnlarini generatsiya qilishda xatolik")
 
+        # Cloud shablon mavjudligini ta'minlash (agar lokal bo'lmasa, Telegram Cloud'dan yuklaydi)
+        resolved_pptx = await GLOBAL_TEMPLATE_CATALOG.ensure_template_pptx_available(tpl_id, bot=callback.bot)
+
         full_spec = {
             "title": title,
             "topic": title,
             "template_id": tpl_id,
+            "resolved_pptx_path": resolved_pptx,
             "target_slide_count": target_count,
             "slides": slides_res.get("slides", []),
             "description": slides_res.get("description", ""),

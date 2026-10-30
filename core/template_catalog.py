@@ -191,6 +191,41 @@ class TemplateCatalog:
 
         return None
 
+    async def ensure_template_pptx_available(self, tpl_id: str, bot=None) -> Optional[str]:
+        """
+        Shablon faylini doimiy mavjud bo'lishini ta'minlaydi:
+        1. Agar shablon lokal diskda bo'lsa (templates/ papkasida), shu zahoti qaytaradi.
+        2. Agar kompyuter o'chiq bo'lsa va bot Render bulutida ishlayotgan bo'lsa,
+           shablonni Telegram yopiq kanalidan (pptx_file_id) tezkor CDN orqali /tmp ga yuklab oladi!
+        """
+        local_path = self.resolve_template_pptx_path(tpl_id)
+        if local_path and os.path.exists(local_path):
+            return local_path
+
+        tpl = self.get_template(tpl_id)
+        if not tpl:
+            return None
+
+        # Telegram Cloud CDN yuklab olish
+        pptx_file_id = tpl.get("pptx_file_id")
+        if pptx_file_id and bot:
+            try:
+                dest_dir = Path(tempfile.gettempdir()) / "soff_ready" / "cloud_templates"
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                dest_path = dest_dir / f"{tpl_id}.pptx"
+                if dest_path.exists() and dest_path.stat().st_size > 5000:
+                    return str(dest_path)
+
+                file_info = await bot.get_file(pptx_file_id)
+                await bot.download_file(file_info.file_path, destination=dest_path)
+                if dest_path.exists() and dest_path.stat().st_size > 5000:
+                    logger.info(f"Telegram Cloud'dan shablon muvaffaqiyatli yuklab olindi: {tpl_id}")
+                    return str(dest_path)
+            except Exception as e:
+                logger.error(f"Telegram Cloud'dan shablon yuklashda xatolik ({tpl_id}): {e}")
+
+        return None
+
     def extract_cover_thumbnail(self, pptx_path: str, out_thumb_path: str) -> bool:
         """
         PPTX ichidagi docProps/thumbnail.jpeg ni 0.002 soniyada ajratib oladi.
