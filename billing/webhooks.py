@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
 import os
+import sys
 import time
 import hmac
 import base64
 import hashlib
-import aiosqlite
+
+try:
+    import aiosqlite
+except ImportError:
+    from core import aiosqlite_shim as aiosqlite
+    sys.modules["aiosqlite"] = aiosqlite
+
 from aiohttp import web
 from core.database import get_db_path
 

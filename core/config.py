@@ -79,6 +79,9 @@ class AppConfig:
 
         # Default standard search paths
         standard_candidates = [
+            Path(r"C:\Users\user\Desktop\Institut\Suniy intelekt\05_Taqdimotlar_va_Maqolalar\Medical_Presentations_English_50"),
+            self.BASE_DIR / "templates",
+            home / "Desktop" / "Institut" / "Suniy intelekt" / "05_Taqdimotlar_va_Maqolalar" / "Medical_Presentations_English_50",
             home / "Desktop" / "slayd",
             home / "Downloads",
             Path("G:/Мой диск/Slaydlar/Slidenest"),

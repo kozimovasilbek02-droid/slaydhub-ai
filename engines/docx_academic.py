@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
 from typing import List, Dict, Any
-from docx import Document
-from docx.shared import Mm, Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
-from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
+
+try:
+    from docx import Document
+    from docx.shared import Mm, Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+    Document = None
 
 
 def _set_east_asia_and_cs_fonts(style, font_name: str = "Times New Roman") -> None:
@@ -113,6 +119,8 @@ def build_otm_academic_docx(spec: Dict[str, Any], out_path: str) -> str:
     """
     O'zbekiston OTM standartlariga 100% mos Referat, Mustaqil ish, Kurs ishi va IMRAD maqola generatori.
     """
+    if not DOCX_AVAILABLE or Document is None:
+        raise RuntimeError("python-docx moduli o'rnatilmagan. Iltimos, 'pip install python-docx' bajaring.")
     doc = Document()
     _enable_auto_update_fields(doc)
 

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: slaydhub-ai
+    env: python
+    buildCommand: ./build.sh
+    startCommand: python main.py
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: SLAYDHUB_DB_PATH
+        value: /tmp/slaydhub_ultra.db
+      - key: MALLOC_ARENA_MAX
+        value: 2
+      - key: MALLOC_TRIM_THRESHOLD_
+        value: 65536

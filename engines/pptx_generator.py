@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
+import os
 import re
-from typing import Dict, Any
+import logging
+from pathlib import Path
+from typing import Dict, Any, Optional
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
@@ -8,6 +11,61 @@ from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.oxml import parse_xml
 from pptx.oxml.ns import nsdecls
+
+logger = logging.getLogger(__name__)
+
+
+def find_best_authentic_template(topic: str) -> Optional[str]:
+    """Mavzuga ko'ra haqiqiy professional shablonni tanlaydi (Render bundled + local kutubxona)."""
+    topic_l = (topic or "").lower()
+    curr_dir = Path(__file__).resolve().parent.parent
+    bundled_dir = curr_dir / "templates"
+    med_dir = Path(r"C:\Users\user\Desktop\Institut\Suniy intelekt\05_Taqdimotlar_va_Maqolalar\Medical_Presentations_English_50")
+
+    is_cardio = any(k in topic_l for k in ["yurak", "kardio", "heart", "cardio", "qon tomir", "infarkt"])
+    is_dental = any(k in topic_l for k in ["tish", "stomatolog", "dental", "teeth"])
+    is_pharma = any(k in topic_l for k in ["dori", "farmakolog", "tabletka", "kapsula", "capsule", "medication"])
+    is_tech = any(k in topic_l for k in ["dasturlash", "ai", "sun'iy", "robot", "it", "kompyuter", "3d", "texnolog"])
+    is_biz = any(k in topic_l for k in ["biznes", "marketing", "iqtisod", "reja", "startap", "moliya", "invest"])
+    is_med = any(k in topic_l for k in ["tibbiyot", "shifoxona", "salomat", "kasallik", "doktor", "bemor", "terapiya", "tibbiy"])
+
+    targets = []
+    if is_cardio:
+        targets = ["11_Humanity_Heartbeat.pptx", "07_Modern_Healthcare_Solutions.pptx"]
+    elif is_dental:
+        targets = ["16_Dental_Health_Care.pptx", "07_Modern_Healthcare_Solutions.pptx"]
+    elif is_pharma:
+        targets = ["20_Capsules_Medication_Balancing.pptx", "07_Modern_Healthcare_Solutions.pptx"]
+    elif is_tech:
+        targets = ["09_Digital_Healthcare.pptx", "3D Printing Technology PowerPoint Templates.pptx"]
+    elif is_biz:
+        targets = ["2019 Business Plan PowerPoint Templates.pptx"]
+    elif is_med:
+        targets = ["07_Modern_Healthcare_Solutions.pptx", "11_Humanity_Heartbeat.pptx"]
+    else:
+        targets = ["2019 Business Plan PowerPoint Templates.pptx", "07_Modern_Healthcare_Solutions.pptx"]
+
+    # 1. Bundled templates check (Render.com + local)
+    if bundled_dir.exists():
+        for t in targets:
+            cand = bundled_dir / t
+            if cand.exists():
+                return str(cand)
+
+    # 2. Local medical templates folder
+    if med_dir.exists():
+        for t in targets:
+            cand = med_dir / t
+            if cand.exists():
+                return str(cand)
+
+    # 3. Fallback to any pptx in bundled
+    if bundled_dir.exists():
+        all_bundled = list(bundled_dir.glob("*.pptx"))
+        if all_bundled:
+            return str(all_bundled[0])
+
+    return None
 
 # ── 1. PENPOT PALITRALARI ─────────────────────────────────────────────────────
 PENPOT_PALETTES = {
@@ -119,8 +177,8 @@ def apply_p16_morph_transition(slide) -> None:
         pass
 
 
-def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
-    """To'liq multi-mavzuli, multi-arxetipli professional .pptx fayl generatsiyasi."""
+def _generate_synthetic_penpot_pptx(spec: Dict[str, Any], out_path: str) -> str:
+    """To'liq multi-mavzuli, multi-arxetipli professional .pptx fayl generatsiyasi (Penpot fallback)."""
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
@@ -402,3 +460,48 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
 
     prs.save(out_path)
     return out_path
+
+
+def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
+    """
+    SlaydHub Ultra v4.2 Taqdimot Generator:
+    1. Mavzuga mos haqiqiy professional shablonni qidiradi (tibbiyot, biznes, IT).
+    2. replace_presentation_content orqali fotosuratlar va 3D grafikalarni saqlab,
+       matnni o'zbek tiliga joylashtiradi.
+    3. Agar shablon topilmasa yoki xatolik yuz bersa, Penpot palitrali generatorga o'tadi.
+    """
+    topic = spec.get("title") or spec.get("topic") or "Akademik Taqdimot"
+    try:
+        tpl_path = find_best_authentic_template(topic)
+        if tpl_path and os.path.exists(tpl_path):
+            from core.pptx_text_replacer import replace_presentation_content
+
+            slides_raw = spec.get("slides", [])
+            formatted_slides = []
+            for s in slides_raw:
+                bullets = (
+                    s.get("points")
+                    or s.get("bullets")
+                    or [c.get("text", "") for c in s.get("cards", []) if isinstance(c, dict)]
+                    or [s.get("content", "")]
+                )
+                formatted_slides.append({
+                    "title": s.get("heading") or s.get("title") or topic,
+                    "subtitle": s.get("subtitle") or "",
+                    "bullets": [str(b) for b in bullets if b],
+                    "speaker_notes": s.get("speaker_notes") or s.get("notes") or "",
+                })
+
+            content_data = {
+                "topic": topic,
+                "slides": formatted_slides,
+            }
+            res = replace_presentation_content(tpl_path, content_data, out_path, engine_mode="harmonized")
+            if os.path.exists(res) and os.path.getsize(res) > 10000:
+                logger.info(f"Authentic presentation created from {tpl_path}: {res}")
+                return res
+    except Exception as e:
+        logger.warning(f"Authentic template generation failed, falling back to Penpot: {e}")
+
+    return _generate_synthetic_penpot_pptx(spec, out_path)
+

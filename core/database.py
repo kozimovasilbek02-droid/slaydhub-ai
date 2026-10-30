@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
 import os
+import sys
 import time
 import json
 from typing import Optional, Dict, Any
-import aiosqlite
+
+try:
+    import aiosqlite
+except ImportError:
+    from core import aiosqlite_shim as aiosqlite
+    sys.modules["aiosqlite"] = aiosqlite
 
 
 def get_db_path() -> str:

@@ -2,15 +2,20 @@
 import os
 from xml.sax.saxutils import escape as xml_escape
 from typing import Dict, Any, Tuple
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
-)
-from reportlab.graphics.shapes import Drawing, Circle, String
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
+    )
+    from reportlab.graphics.shapes import Drawing, Circle, String
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
 
 
 def _register_unicode_fonts() -> Tuple[str, str]:
@@ -84,6 +89,8 @@ def build_dtm_quiz_pdf(spec: Dict[str, Any], out_path: str) -> str:
     DTM (Bilim va malakalarni baholash agentligi) standarti bo'yicha A4 formatli
     chop etishga tayyor test savollari va vektor doirachali javoblar varaqasi (Bubble Sheet) PDF yaratadi.
     """
+    if not REPORTLAB_AVAILABLE:
+        raise RuntimeError("reportlab moduli o'rnatilmagan. Iltimos, 'pip install reportlab' bajaring.")
     doc = SimpleDocTemplate(
         out_path,
         pagesize=A4,

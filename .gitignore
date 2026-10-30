@@ -36,6 +36,9 @@ temp_sessions/
 output/
 test_artifacts/
 *.pptx
+!templates/*.pptx
+!templates/**/*.pptx
+
 
 # Cloned third-party repositories
 tools/presenton/
