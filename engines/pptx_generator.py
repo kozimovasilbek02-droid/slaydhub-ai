@@ -464,17 +464,40 @@ def _generate_synthetic_penpot_pptx(spec: Dict[str, Any], out_path: str) -> str:
 
 def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
     """
-    SlaydHub Ultra v4.2 Taqdimot Generator:
-    1. Mavzuga mos haqiqiy professional shablonni qidiradi (tibbiyot, biznes, IT).
-    2. replace_presentation_content orqali fotosuratlar va 3D grafikalarni saqlab,
+    SlaydHub Ultra v4.3 Taqdimot Generator:
+    1. Tanlangan template_id yoki mavzuga mos haqiqiy shablonni oladi.
+    2. SlidePruner orqali shablonni aynan so'ralgan betlar soniga qisqartiradi (prune).
+    3. replace_presentation_content orqali fotosuratlar va 3D grafikalarni saqlab,
        matnni o'zbek tiliga joylashtiradi.
-    3. Agar shablon topilmasa yoki xatolik yuz bersa, Penpot palitrali generatorga o'tadi.
+    4. Agar shablon topilmasa yoki xatolik yuz bersa, Penpot palitrali generatorga o'tadi.
     """
     topic = spec.get("title") or spec.get("topic") or "Akademik Taqdimot"
+    target_count = spec.get("target_slide_count") or (len(spec.get("slides", [])) + 2)
+    tpl_id = spec.get("template_id")
+
     try:
-        tpl_path = find_best_authentic_template(topic)
+        from core.template_catalog import GLOBAL_TEMPLATE_CATALOG
+        from engines.slide_pruner import prune_presentation_file
+        from core.pptx_text_replacer import replace_presentation_content
+
+        tpl_path = None
+        if tpl_id:
+            tpl_path = GLOBAL_TEMPLATE_CATALOG.resolve_template_pptx_path(tpl_id)
+        if not tpl_path or not os.path.exists(tpl_path):
+            tpl_path = find_best_authentic_template(topic)
+
         if tpl_path and os.path.exists(tpl_path):
-            from core.pptx_text_replacer import replace_presentation_content
+            # 1. Shablonni so'ralgan slaydlar soniga moslab qisqartirish (Pruning)
+            pruned_tpl = tpl_path
+            temp_pruned = None
+            try:
+                import tempfile
+                temp_pruned = os.path.join(tempfile.gettempdir(), f"pruned_step_{os.getpid()}_{int(time.time() * 1000)}.pptx")
+                prune_presentation_file(tpl_path, target_count, temp_pruned)
+                if os.path.exists(temp_pruned) and os.path.getsize(temp_pruned) > 5000:
+                    pruned_tpl = temp_pruned
+            except Exception as pe:
+                logger.warning(f"Slide pruning ogohlantirish: {pe}")
 
             slides_raw = spec.get("slides", [])
             formatted_slides = []
@@ -496,9 +519,17 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
                 "topic": topic,
                 "slides": formatted_slides,
             }
-            res = replace_presentation_content(tpl_path, content_data, out_path, engine_mode="harmonized")
+            res = replace_presentation_content(pruned_tpl, content_data, out_path, engine_mode="harmonized")
+
+            # Vaqtinchalik qisqartirilgan faylni tozalash
+            if temp_pruned and os.path.exists(temp_pruned):
+                try:
+                    os.remove(temp_pruned)
+                except Exception:
+                    pass
+
             if os.path.exists(res) and os.path.getsize(res) > 10000:
-                logger.info(f"Authentic presentation created from {tpl_path}: {res}")
+                logger.info(f"Authentic presentation created from {tpl_path} (Target: {target_count} slides): {res}")
                 return res
     except Exception as e:
         logger.warning(f"Authentic template generation failed, falling back to Penpot: {e}")
