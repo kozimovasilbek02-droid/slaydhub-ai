@@ -53,16 +53,20 @@ async def seed_templates(channel_id: str, max_upload: int = 50) -> None:
         except Exception:
             existing_catalog = {}
 
-    # Qidiruv kataloglari
+    # Qidiruv kataloglari (Kompyuteringizdagi barcha 16,000+ ta shablonlar ombori)
     search_dirs = [
         Path(r"C:\Users\user\Desktop\Institut\Suniy intelekt\05_Taqdimotlar_va_Maqolalar\Medical_Presentations_English_50"),
         REPO_ROOT / "templates",
-        Path(r"C:\Users\user\Desktop\slayd\Yuklab_Olingan_Top50"),
-        Path(r"C:\Users\user\Desktop\slayd\PowerPointSchool"),
-        Path(r"C:\Users\user\Desktop\slayd\PresentationGO"),
-        Path(r"C:\Users\user\Desktop\slayd\FreePPT7"),
-        Path(r"C:\Users\user\Desktop\slayd\PPTTemplate"),
+        Path(r"C:\Users\user\Desktop\slayd"),
+        Path(r"C:\Users\user\Desktop\Powepoint"),
+        Path(r"G:\Мой диск\Powepoint"),
+        Path(r"G:\Мой диск\Slaydlar"),
+        Path(r"G:\Мой диск\SlideEgg_Downloads"),
     ]
+
+    # Allaqachon katalogda mavjud bo'lgan fayllarni aniqlash
+    existing_filenames = {item.get("filename") for item in existing_catalog.values()}
+    print(f"📦 Avval yuklangan fayllar: {len(existing_filenames)} ta.")
 
     # Toifalar bo'yicha saralash (Category Balancer)
     category_buckets: Dict[str, List[Path]] = {
@@ -78,48 +82,42 @@ async def seed_templates(channel_id: str, max_upload: int = 50) -> None:
     for s_dir in search_dirs:
         if s_dir.exists():
             for p in s_dir.rglob("*.pptx"):
-                if p.name.startswith("~$") or p.stat().st_size < 50000 or p.name in seen_names:
+                # Vaqtinchalik fayllar, 50KB dan kichik yoki 48MB dan katta (Telegram bot limiti 50MB) fayllarni o'tkazib yuborish
+                if p.name.startswith("~$") or p.stat().st_size < 50000 or p.stat().st_size > 48 * 1024 * 1024:
+                    continue
+                if p.name in seen_names or p.name in existing_filenames:
                     continue
                 seen_names.add(p.name)
                 cat = GLOBAL_TEMPLATE_CATALOG.detect_category(p.name)
                 category_buckets[cat].append(p)
 
-    # Mavjud toifalar sonini hisoblash
-    cat_counts = {c: 0 for c in category_buckets}
-    for item in existing_catalog.values():
-        c = item.get("category", "minimal")
-        if c in cat_counts:
-            cat_counts[c] += 1
-    print(f"📊 Hozirgi katalogdagi toifalar: {cat_counts}")
-
     target_files: List[Path] = []
-    # Kamroq yuklangan toifalardan boshlab to'ldirish (tech, edu, nature, med, biz, minimal)
-    for cat in ["tech", "edu", "nature", "med", "biz", "minimal"]:
-        flist = category_buckets.get(cat, [])
-        needed = max(5, 12 - cat_counts.get(cat, 0))
-        added = 0
-        for p in flist:
-            safe_id = f"tpl_{p.stem[:25].lower().replace(' ', '_').replace('-', '_')}"
-            if safe_id not in existing_catalog:
-                target_files.append(p)
-                added += 1
-                if added >= needed:
-                    break
+    if max_upload > 200:
+        # Barcha arxiv rejimida: barcha yuklanmagan yangi shablonlarni navbat bilan qo'shish
+        for cat, flist in category_buckets.items():
+            print(f"📁 Toifa [{cat}]: {len(flist)} ta yangi yuklanadigan shablon topildi")
+            target_files.extend(flist)
+    else:
+        # Balanslangan kvota rejimi
+        per_cat = max(5, max_upload // 6)
+        for cat, flist in category_buckets.items():
+            target_files.extend(flist[:per_cat])
 
-    print(f"🎯 Saralangan maqsadli yangi shablonlar: {len(target_files)} ta.")
+    print(f"🎯 Jami yuklanishi kerak bo'lgan yangi shablonlar: {len(target_files)} ta.", flush=True)
     uploaded_count = 0
 
     for pptx_file in target_files:
         if uploaded_count >= max_upload:
-            print(f"⏸️ Maksimal kvota ({max_upload} ta) yetdi. Seeding yakunlandi.")
+            print(f"⏸️ Maksimal kvota ({max_upload} ta) yetdi. Seeding yakunlandi.", flush=True)
             break
 
-        safe_id = f"tpl_{pptx_file.stem[:25].lower().replace(' ', '_').replace('-', '_')}"
-        if safe_id in existing_catalog and existing_catalog[safe_id].get("pptx_file_id"):
-            continue  # Allaqachon yuklangan
+        # Unikal xeshli ID yaratish (nomlar to'qnashmasligi uchun)
+        safe_name = "".join(c if c.isalnum() else "_" for c in pptx_file.stem.lower())[:30].strip("_")
+        name_hash = hex(abs(hash(pptx_file.name)))[2:8]
+        safe_id = f"tpl_{safe_name}_{name_hash}"
 
         category = GLOBAL_TEMPLATE_CATALOG.detect_category(pptx_file.name)
-        print(f"📤 Yuklanmoqda [{uploaded_count + 1}]: {pptx_file.name} (Toifa: {category})...")
+        print(f"📤 Yuklanmoqda [{uploaded_count + 1}/{min(len(target_files), max_upload)}]: {pptx_file.name} (Toifa: {category})...", flush=True)
 
         with tempfile.TemporaryDirectory() as td:
             thumb_path = os.path.join(td, "thumb.jpeg")

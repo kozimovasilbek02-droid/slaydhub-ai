@@ -129,17 +129,33 @@ class TemplateCatalog:
                 logger.warning(f"templates_catalog.json o'qishda xatolik: {e}")
 
     def detect_category(self, topic: str) -> str:
-        """Mavzu bo'yicha eng mos keladigan toifani aniqlaydi."""
-        topic_l = (topic or "").lower()
-        if any(w in topic_l for w in ["yurak", "tibbiyot", "salomat", "kasallik", "dori", "tish", "shifoxona", "bemor", "doktor"]):
+        """Mavzu yoki fayl nomi bo'yicha eng mos keladigan toifani aniqlaydi (UZ / EN)."""
+        t = (topic or "").lower()
+        if any(w in t for w in [
+            "yurak", "tibbiyot", "salomat", "kasallik", "dori", "tish", "shifoxona", "bemor", "doktor",
+            "heart", "cardio", "dental", "pharma", "medic", "health", "hospital", "doctor", "clinic",
+            "virus", "disease", "coron", "capsule", "spine", "pediatric", "surgical", "anatomy"
+        ]):
             return "med"
-        if any(w in topic_l for w in ["biznes", "moliya", "reja", "marketing", "invest", "pul", "iqtisod", "startap", "daromad"]):
+        if any(w in t for w in [
+            "biznes", "moliya", "reja", "marketing", "invest", "pul", "iqtisod", "startap", "daromad",
+            "business", "market", "finance", "plan", "startup", "invest", "company", "corporate", "strategy"
+        ]):
             return "biz"
-        if any(w in topic_l for w in ["ai", "sun'iy", "dastur", "kod", "it", "robot", "kompyuter", "3d", "texnolog"]):
+        if any(w in t for w in [
+            "ai", "sun'iy", "dastur", "kod", "it", "robot", "kompyuter", "3d", "texnolog",
+            "tech", "software", "comput", "digital", "data", "cyber", "cloud", "network", "analytics", "coding"
+        ]):
             return "tech"
-        if any(w in topic_l for w in ["maktab", "universitet", "dars", "talaba", "tarix", "pedagog", "adabiyot", "fan", "til"]):
+        if any(w in t for w in [
+            "maktab", "universitet", "dars", "talaba", "tarix", "pedagog", "adabiyot", "fan", "til",
+            "education", "school", "universit", "student", "study", "history", "lesson", "academic", "learn", "teach"
+        ]):
             return "edu"
-        if any(w in topic_l for w in ["tabiat", "ekolog", "o'simlik", "hayvon", "iqlim", "suv", "geograf"]):
+        if any(w in t for w in [
+            "tabiat", "ekolog", "o'simlik", "hayvon", "iqlim", "suv", "geograf",
+            "nature", "green", "ecolog", "plant", "earth", "animal", "flower", "water", "tree", "forest", "leaf", "leaves"
+        ]):
             return "nature"
         return "minimal"
 
