@@ -2,9 +2,9 @@
 """
 scripts/seed_telegram_templates.py
 Automated seeder script for SlaydHub Ultra 1,000+ templates.
-1. Scans local PPTX directories (Desktop/slayd, templates, Medical_Presentations_English_50).
+1. Scans local PPTX directories (Desktop/slayd, templates, Medical_Presentations_English_50, Powepoint).
 2. Extracts high-res cover thumbnail (docProps/thumbnail.jpeg) in memory.
-3. Uploads thumbnail and PPTX file to your private Telegram storage channel.
+3. Uploads thumbnail and PPTX file to your private Telegram storage channel with ATOMIC ROLLBACK.
 4. Stores permanent file_id references into templates_catalog.json for Render cloud delivery.
 """
 
@@ -22,7 +22,9 @@ try:
 except Exception:
     pass
 
+import aiohttp
 from aiogram import Bot
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.types import FSInputFile
 from aiogram.exceptions import TelegramRetryAfter
 
@@ -35,15 +37,20 @@ from core.template_catalog import GLOBAL_TEMPLATE_CATALOG, CATEGORIES
 
 
 async def seed_templates(channel_id: str, max_upload: int = 50) -> None:
-    bot = Bot(token=config.bot_token)
+    # 300 soniyalik (5 daqiqa) kengaytirilgan timeout - katta PPTX fayllar uzilib qolmasligi uchun
+    custom_timeout = aiohttp.ClientTimeout(total=300, connect=60, sock_read=300)
+    session = AiohttpSession(timeout=custom_timeout)
+    bot = Bot(token=config.bot_token, session=session)
+
     try:
         me = await bot.get_me()
-        print(f"✅ Bot ulandi: @{me.username}")
+        print(f"✅ Bot ulandi: @{me.username}", flush=True)
     except Exception as e:
-        print(f"❌ Bot token xatosi: {e}")
+        print(f"❌ Bot token xatosi: {e}", flush=True)
+        await bot.session.close()
         return
 
-    print(f"📢 Nishon Telegram kanali: {channel_id}")
+    print(f"📢 Nishon Telegram kanali: {channel_id}", flush=True)
     catalog_path = REPO_ROOT / "templates_catalog.json"
     existing_catalog: Dict[str, Any] = {}
     if catalog_path.exists():
@@ -64,9 +71,13 @@ async def seed_templates(channel_id: str, max_upload: int = 50) -> None:
         Path(r"G:\Мой диск\SlideEgg_Downloads"),
     ]
 
-    # Allaqachon katalogda mavjud bo'lgan fayllarni aniqlash
-    existing_filenames = {item.get("filename") for item in existing_catalog.values()}
-    print(f"📦 Avval yuklangan fayllar: {len(existing_filenames)} ta.")
+    # Allaqachon to'liq (fayli bilan) katalogda mavjud bo'lgan fayllar
+    existing_filenames = {
+        item.get("filename")
+        for item in existing_catalog.values()
+        if item.get("filename") and item.get("pptx_file_id")
+    }
+    print(f"📦 Avval to'liq yuklangan tasdiqlangan fayllar: {len(existing_filenames)} ta.", flush=True)
 
     # Toifalar bo'yicha saralash (Category Balancer)
     category_buckets: Dict[str, List[Path]] = {
@@ -93,9 +104,9 @@ async def seed_templates(channel_id: str, max_upload: int = 50) -> None:
 
     target_files: List[Path] = []
     if max_upload > 200:
-        # Barcha arxiv rejimida: barcha yuklanmagan yangi shablonlarni navbat bilan qo'shish
+        # Barcha arxiv rejimida: barcha yangi yuklanadigan shablonlarni navbat bilan qo'shish
         for cat, flist in category_buckets.items():
-            print(f"📁 Toifa [{cat}]: {len(flist)} ta yangi yuklanadigan shablon topildi")
+            print(f"📁 Toifa [{cat}]: {len(flist)} ta yangi yuklanadigan shablon topildi", flush=True)
             target_files.extend(flist)
     else:
         # Balanslangan kvota rejimi
@@ -117,71 +128,83 @@ async def seed_templates(channel_id: str, max_upload: int = 50) -> None:
         safe_id = f"tpl_{safe_name}_{name_hash}"
 
         category = GLOBAL_TEMPLATE_CATALOG.detect_category(pptx_file.name)
-        print(f"📤 Yuklanmoqda [{uploaded_count + 1}/{min(len(target_files), max_upload)}]: {pptx_file.name} (Toifa: {category})...", flush=True)
+        print(f"📤 Yuklanmoqda [{uploaded_count + 1}/{min(len(target_files), max_upload)}]: {pptx_file.name} (Toifa: {category}, Hajm: {round(pptx_file.stat().st_size / (1024*1024), 2)} MB)...", flush=True)
 
         with tempfile.TemporaryDirectory() as td:
             thumb_path = os.path.join(td, "thumb.jpeg")
             has_thumb = GLOBAL_TEMPLATE_CATALOG.extract_cover_thumbnail(str(pptx_file), thumb_path)
 
+            photo_msg = None
             thumb_file_id = None
             if has_thumb:
-                for _ in range(3):
+                for attempt in range(3):
                     try:
                         photo_msg = await bot.send_photo(
                             chat_id=channel_id,
                             photo=FSInputFile(thumb_path),
                             caption=f"🖼️ Muqova: {pptx_file.stem}\nToifa: {category}",
                         )
-                        if photo_msg.photo:
+                        if photo_msg and photo_msg.photo:
                             thumb_file_id = photo_msg.photo[-1].file_id
                         break
                     except TelegramRetryAfter as tra:
                         print(f"⏳ FloodWait SendPhoto: {tra.retry_after}s kutilmoqda...", flush=True)
                         await asyncio.sleep(tra.retry_after + 2)
                     except Exception as ex:
-                        print(f"⚠️ Rasm yuklashda ogohlantirish: {ex}", flush=True)
-                        break
+                        print(f"⚠️ Rasm yuklashda ogohlantirish (urinish {attempt+1}): {ex}", flush=True)
+                        await asyncio.sleep(2)
 
             doc_msg = None
-            for _ in range(3):
+            for attempt in range(4):
                 try:
                     doc_msg = await bot.send_document(
                         chat_id=channel_id,
                         document=FSInputFile(str(pptx_file)),
                         caption=f"📁 Slayd: {pptx_file.name}\nID: {safe_id}",
                     )
-                    break
+                    if doc_msg and doc_msg.document:
+                        break
                 except TelegramRetryAfter as tra:
                     print(f"⏳ FloodWait SendDocument: {tra.retry_after}s kutilmoqda...", flush=True)
                     await asyncio.sleep(tra.retry_after + 2)
                 except Exception as e:
-                    print(f"❌ Fayl yuklashda xatolik ({pptx_file.name}): {e}", flush=True)
-                    break
+                    print(f"❌ Fayl yuklashda xatolik (urinish {attempt+1}, {pptx_file.name}): {e}", flush=True)
+                    await asyncio.sleep(3)
 
-            if doc_msg and doc_msg.document:
-                pptx_file_id = doc_msg.document.file_id
-                existing_catalog[safe_id] = {
-                    "id": safe_id,
-                    "title": pptx_file.stem.replace("_", " ").title(),
-                    "category": category,
-                    "filename": pptx_file.name,
-                    "pptx_file_id": pptx_file_id,
-                    "thumb_file_id": thumb_file_id,
-                    "local_path": str(pptx_file),
-                }
-                uploaded_count += 1
-                print(f"✅ Saqlandi [{uploaded_count}/{max_upload}]: {safe_id} (Toifa: {category})", flush=True)
+            # ATOMIK ROLLBACK KAFOLATI: Agar fayl yuklanmasa, yetim qolgan muqova darhol kanaldan o'chiriladi!
+            if not doc_msg or not doc_msg.document:
+                if photo_msg:
+                    try:
+                        print(f"🧹 ROLLBACK: Fayl yuklanmadi! Yetim muqova kanaldan o'chirilmoqda (msg_id: {photo_msg.message_id})...", flush=True)
+                        await bot.delete_message(chat_id=channel_id, message_id=photo_msg.message_id)
+                    except Exception as dex:
+                        print(f"⚠️ Muqovani o'chirishda xatolik: {dex}", flush=True)
+                print(f"⏭️ {pptx_file.name} o'tkazib yuborildi (yetim muqova qoldirilmadi).", flush=True)
+                continue
 
-                # Har bir yuklashdan keyin oraliq holatni saqlab borish
-                with open(catalog_path, "w", encoding="utf-8") as f:
-                    json.dump(existing_catalog, f, indent=2, ensure_ascii=False)
+            pptx_file_id = doc_msg.document.file_id
+            existing_catalog[safe_id] = {
+                "id": safe_id,
+                "title": pptx_file.stem.replace("_", " ").title(),
+                "category": category,
+                "filename": pptx_file.name,
+                "pptx_file_id": pptx_file_id,
+                "thumb_file_id": thumb_file_id,
+                "local_path": str(pptx_file),
+            }
+            uploaded_count += 1
+            print(f"✅ Muvaffaqiyatli saqlandi [{uploaded_count}/{max_upload}]: {safe_id} (Toifa: {category})", flush=True)
 
-                await asyncio.sleep(2.5)  # Barqaror Telegram intervali
+            # Har bir yuklashdan keyin darhol katalog faylini yangilash
+            with open(catalog_path, "w", encoding="utf-8") as f:
+                json.dump(existing_catalog, f, indent=2, ensure_ascii=False)
+
+            await asyncio.sleep(2.0)  # Telegram API limitlariga tushmaslik uchun xavfsiz interval
 
     with open(catalog_path, "w", encoding="utf-8") as f:
         json.dump(existing_catalog, f, indent=2, ensure_ascii=False)
 
-    print(f"🎉 Muvaffaqiyatli yakunlandi! Jami {len(existing_catalog)} ta shablon katalogda.", flush=True)
+    print(f"🎉 Yakunlandi! Jami {len(existing_catalog)} ta shablon (fayli va muqovasi bilan) katalogda.", flush=True)
     await bot.session.close()
 
 
