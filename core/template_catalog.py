@@ -242,29 +242,64 @@ class TemplateCatalog:
 
         return None
 
-    def extract_cover_thumbnail(self, pptx_path: str, out_thumb_path: str) -> bool:
+    def extract_cover_thumbnail(self, pptx_path: str, out_thumb_path: str, ppt_app=None) -> bool:
         """
-        PPTX ichidagi docProps/thumbnail.jpeg ni 0.002 soniyada ajratib oladi.
-        PowerPoint yoki og'ir kutubxonalarsiz, sof OpenXML orqali ishlaydi.
+        Yuqori sifatli muqova rasmini ajratib oladi:
+        1. OpenXML: docProps/thumbnail.jpeg (agar mavjud va > 8KB bo'lsa).
+        2. Agar mavjud bo'lmasa: PowerPoint COM orqali 1-slaydni 1280x720 HD sifatda eksport qiladi!
+        3. Hech qachon kichik ijtimoiy tarmoq ikonkalari (< 25KB, masalan Facebook logosi) olinmaydi!
         """
         if not os.path.exists(pptx_path):
             return False
+        abs_out = os.path.abspath(out_thumb_path)
         try:
             with zipfile.ZipFile(pptx_path, "r") as z:
-                # 1. Rasmiy thumbnail rasmi
+                # 1. Rasmiy thumbnail rasmi (faqat agar 8KB dan katta haqiqiy rasm bo'lsa)
                 for candidate in ["docProps/thumbnail.jpeg", "docProps/thumbnail.jpg", "docProps/thumbnail.png"]:
-                    if candidate in z.namelist():
-                        with open(out_thumb_path, "wb") as f:
+                    if candidate in z.namelist() and z.getinfo(candidate).file_size > 8000:
+                        with open(abs_out, "wb") as f:
                             f.write(z.read(candidate))
                         return True
-                # 2. Fallback: 1-slaydning asosiy fotosurati
-                for candidate in z.namelist():
-                    if candidate.startswith("ppt/media/image1.") and candidate.endswith((".jpg", ".jpeg", ".png")):
-                        with open(out_thumb_path, "wb") as f:
-                            f.write(z.read(candidate))
-                        return True
+        except Exception:
+            pass
+
+        # 2. PowerPoint COM orqali 1-slaydni haqiqiy 1280x720 HD qilib render qilish
+        try:
+            import win32com.client
+            owns_app = False
+            if ppt_app is None:
+                ppt_app = win32com.client.DispatchEx("PowerPoint.Application")
+                owns_app = True
+
+            pres = ppt_app.Presentations.Open(os.path.abspath(pptx_path), ReadOnly=True, Untitled=False, WithWindow=False)
+            pres.Slides(1).Export(abs_out, "JPG", 1280, 720)
+            pres.Close()
+            if owns_app:
+                try:
+                    ppt_app.Quit()
+                except Exception:
+                    pass
+            if os.path.exists(abs_out) and os.path.getsize(abs_out) > 5000:
+                return True
         except Exception as e:
-            logger.warning(f"Thumbnail ajratishda xatolik ({pptx_path}): {e}")
+            logger.warning(f"PowerPoint COM render xatosi ({pptx_path}): {e}")
+
+        # 3. Fallback: ppt/media/ ichidagi eng katta rasmni olish (> 40KB)
+        try:
+            with zipfile.ZipFile(pptx_path, "r") as z:
+                media_files = [
+                    m for m in z.namelist()
+                    if m.startswith("ppt/media/") and m.endswith((".jpg", ".jpeg", ".png"))
+                    and z.getinfo(m).file_size > 40000  # Kichik ikonkalar (Facebook va h.k.) qat'iyan rad etiladi
+                ]
+                if media_files:
+                    largest = max(media_files, key=lambda m: z.getinfo(m).file_size)
+                    with open(abs_out, "wb") as f:
+                        f.write(z.read(largest))
+                    return True
+        except Exception:
+            pass
+
         return False
 
 
