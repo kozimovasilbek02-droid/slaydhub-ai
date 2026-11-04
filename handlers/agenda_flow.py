@@ -848,24 +848,30 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
             )
 
             # Soff.uz va DTM Test registratsiyasi
+            if not os.path.exists(out_path) or os.path.getsize(out_path) < 1000:
+                raise FileNotFoundError(f"Taqdimot fayli yaratilmadi yoki bo'sh: {out_path}")
+
             try:
                 from pptx import Presentation
                 actual_slides_count = len(Presentation(out_path).slides)
             except Exception:
                 actual_slides_count = len(full_spec.get("slides", [])) + 2
+
             soff_price = 3000 if actual_slides_count <= 6 else 7000 if actual_slides_count <= 12 else 10000
             upload_id = f"{user_id}_{int(time.time())}"
+            clean_title = str(title or "Taqdimot").strip()
+            clean_tpl = str(tpl_title or "Shablon").strip()
             PENDING_UPLOADS[upload_id] = {
                 "file_path": out_path,
-                "title": title,
-                "description": full_spec.get("description", f"{title} bo'yicha taqdimot"),
+                "title": clean_title,
+                "description": full_spec.get("description", f"{clean_title} bo'yicha taqdimot"),
                 "price": soff_price,
                 "category_id": category_id,
                 "tags": full_spec.get("tags", ""),
                 "created_at": time.time(),
             }
 
-            safe_fn = "".join(c for c in title if c.isalnum() or c in (" ", "_", "-")).strip()[:45] or "Taqdimot"
+            safe_fn = "".join(c for c in clean_title if c.isalnum() or c in (" ", "_", "-")).strip()[:45] or "Taqdimot"
             doc_file = FSInputFile(out_path, filename=f"{safe_fn}.pptx")
             kb_after = [
                 [
@@ -881,20 +887,44 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
                 [InlineKeyboardButton(text="◀️ Asosiy menyu", callback_data="menu_home")],
             ]
 
-            # Avval faylni foydalanuvchiga muvaffaqiyatli yetkazamiz, keyin draftni o'chiramiz
-            await callback.message.answer_document(
-                doc_file,
-                caption=(
-                    f"✅ <b>«{html.escape(str(title))}»</b> taqdimoti muvaffaqiyatli tayyorlandi!\n\n"
-                    f"🎨 <b>Shablon:</b> {html.escape(tpl_title)}\n"
-                    f"📊 <b>Slaydlar soni:</b> {actual_slides_count} ta (Muqova, Reja va Xulosa bilan)\n"
-                    f"💰 <b>Soff.uz tavsiya narxi:</b> {soff_price:,} so'm"
-                ),
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_after),
-                parse_mode="HTML",
+            caption_txt = (
+                f"✅ <b>«{html.escape(clean_title)}»</b> taqdimoti muvaffaqiyatli tayyorlandi!\n\n"
+                f"🎨 <b>Shablon:</b> {html.escape(clean_tpl)}\n"
+                f"📊 <b>Slaydlar soni:</b> {actual_slides_count} ta (Muqova, Reja va Xulosa bilan)\n"
+                f"💰 <b>Soff.uz tavsiya narxi:</b> {soff_price:,} so'm"
             )
+
+            # Avval faylni foydalanuvchiga muvaffaqiyatli yetkazamiz (3 marta qayta urinish bilan)
+            send_success = False
+            last_send_err = None
+            for attempt in range(3):
+                try:
+                    await callback.bot.send_document(
+                        chat_id=user_id,
+                        document=doc_file,
+                        caption=caption_txt,
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_after),
+                        parse_mode="HTML",
+                    )
+                    send_success = True
+                    break
+                except Exception as e_send:
+                    last_send_err = e_send
+                    logger.warning(f"send_document attempt {attempt+1}/3 failed for {user_id}: {e_send}")
+                    await asyncio.sleep(1.5)
+
+            if not send_success:
+                raise RuntimeError(f"Faylni Telegramga yuborishda xatolik: {last_send_err}")
+
+            # Muvaffaqiyatli yuborilgach, status xabarni o'chiramiz va tozalaymiz
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+
             await delete_draft(user_id, "pptx")
             await state.clear()
+            enforce_tmp_quota(perm_dir)
         except (Exception, asyncio.TimeoutError) as exc:
             is_timeout = isinstance(exc, (asyncio.TimeoutError, TimeoutError))
             err_msg = "Slayd tayyorlash vaqti (95s) me'yordan oshdi" if is_timeout else str(exc)
@@ -910,11 +940,14 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
                     parse_mode="HTML",
                 )
             except Exception:
-                pass
+                try:
+                    await callback.bot.send_message(
+                        chat_id=user_id,
+                        text=f"❌ <b>Slayd yaratishda xatolik:</b> {html.escape(err_msg)}\n\n<i>Hisobingiz saqlandi.</i>",
+                        parse_mode="HTML",
+                    )
+                except Exception:
+                    pass
             return
-        try:
-            await status_msg.delete()
-        except Exception:
-            pass
     finally:
         ACTIVE_BUILDS.discard(user_id)
