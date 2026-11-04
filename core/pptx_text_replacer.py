@@ -334,7 +334,7 @@ class DeepWatermarkPurger:
 
 class AdSlideFilter:
     """
-    Detects and rejects full advertisement / credit slides from template decks.
+    Detects and rejects full advertisement, credit, icon sheet, and device mockup slides from template decks.
     """
 
     @classmethod
@@ -342,35 +342,54 @@ class AdSlideFilter:
         t_shapes = [s for s in slide.shapes if s.has_text_frame and s.text_frame.text.strip()]
         all_text = " ".join([s.text_frame.text.lower() for s in t_shapes])
         
+        # 1. Matnli markerlar orqali reklama, kredit, manba va ikonka slaydlarini aniqlash
         ad_markers = [
-            "designed with",
-            "presentationgo",
-            "free templates & infographics",
-            "questions or need help",
-            "slidescarnival",
-            "slidenest",
-            "slidesmania",
-            "allppt",
-            "slideegg",
-            "credits & resources",
-            "fonts & colors used",
-            "color palette & font",
-            "terms of use",
-            "our license",
-            "thank you for downloading",
-            "free powerpoint templates",
-            "visit our faq",
-            "instructions for use",
-            "alternative resources",
-            "editable icons",
-            "icon set",
-            "vector icons",
-            "happy designing",
-            "pexels, pixabay"
+            "designed with", "presentationgo", "free templates & infographics",
+            "questions or need help", "slidescarnival", "slidenest", "slidesmania",
+            "allppt", "slideegg", "credits & resources", "fonts & colors used",
+            "color palette & font", "terms of use", "our license", "thank you for downloading",
+            "free powerpoint templates", "visit our faq", "instructions for use",
+            "alternative resources", "editable icons", "icon set", "icon sets",
+            "vector icons", "happy designing", "pexels, pixabay", "google fonts",
+            "fonts & colors", "typography & colors", "our team", "meet our team",
+            "customizable icons", "business icons", "medical icons", "education icons",
+            "avatar pack", "icon pack", "vector assets", "infographic style fully editable"
         ]
         for marker in ad_markers:
             if marker in all_text:
                 return True
+
+        # 2. Ikonkalar to'plami (Icon Sheet / Asset Pack) tahlili:
+        # 8 dan ortiq kichik ikonka yoki 5 dan ortiq rasm bo'lib matn kam bo'lsa - bu ikonka slaydi
+        total_shapes = len(slide.shapes)
+        pic_count = sum(1 for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE)
+        small_shapes = sum(
+            1 for s in slide.shapes
+            if (s.width and SafeShapeGeometry.to_pt(s.width) < 65.0) and (s.height and SafeShapeGeometry.to_pt(s.height) < 65.0)
+        )
+        if small_shapes >= 8:
+            return True
+        if pic_count >= 5 and len(t_shapes) <= 3:
+            return True
+        if total_shapes >= 15 and len(t_shapes) <= 1:
+            return True
+
+        # 3. Bo'sh qurilma maketlari (Device Mockup: iPhone, iPad, Laptop bo'sh ekranlari):
+        has_mockup = False
+        for s in slide.shapes:
+            w_pt = SafeShapeGeometry.to_pt(s.width)
+            h_pt = SafeShapeGeometry.to_pt(s.height)
+            if s.shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.PLACEHOLDER):
+                if 100.0 <= w_pt <= 260.0 and 240.0 <= h_pt <= 560.0 and (h_pt / max(w_pt, 1.0)) >= 1.6:
+                    has_mockup = True
+                    break
+        if has_mockup and len(t_shapes) <= 4 and len(all_text) < 120:
+            return True
+
+        # 4. Deyarli bo'sh yoki faqat fon bezaklari qolgan slaydlar
+        if len(t_shapes) == 0 and total_shapes < 3:
+            return True
+
         return False
 
 
@@ -2249,6 +2268,27 @@ class PPTXTextReplacer:
         # Resolve image vs text collisions before filling text
         SpatialCollisionEngine.resolve_image_text_collisions(slide, [s["shape"] for s in active_shapes])
 
+        # Slayd sarlavhasini erta aniqlash (Table va Chart bloklarida UnboundLocalError ning oldini oladi)
+        best_title_meta = None
+        title_candidates_early = []
+        for s_cand in active_shapes:
+            if not s_cand.get("is_valid_zone") or s_cand.get("is_step"):
+                continue
+            sc = 0
+            t_low = s_cand["text"].lower()
+            s_name_low = s_cand["name"].lower()
+            if any(k in t_low for k in ["table of contents", "agenda", "contents", "steps infographic", "timeline infographic", "comparison slide", "bullet points", "table slide", "credits"]):
+                sc += 500
+            elif "title" in s_name_low or "header" in s_name_low:
+                sc += 250
+            if s_cand["top"] < sh_pt * 0.35:
+                sc += 100
+            title_candidates_early.append((sc, s_cand))
+        if title_candidates_early:
+            title_candidates_early.sort(key=lambda x: x[0], reverse=True)
+            if title_candidates_early[0][0] > 0:
+                best_title_meta = title_candidates_early[0][1]
+
         # -------------------------------------------------------------
         # 1. SPECIALIZED LAYOUT HANDLERS FOR HIGHEST VISUAL PERFECTION
         # -------------------------------------------------------------
@@ -3390,11 +3430,15 @@ class TemplateDeckAssembler:
         non_ad_count = sum(1 for m in template_slides_meta if not m["is_ad"])
         while non_ad_count < len(slides_data):
             req_atype = slides_data[non_ad_count].get("layout_type", "cards_grid")
-            donor_res = CrossDeckSlideDonor.get_donor_slide(req_atype, used_donors)
-            if donor_res:
-                donor_slide, d_path, d_idx = donor_res
-                new_slide = prs.slides.add_slide(blank_layout)
-                HarmonizedSlideCloner.clone_slide_to_target(donor_slide, new_slide, theme_palette=palette)
+            new_slide = prs.slides.add_slide(blank_layout)
+            donor_splice_res = CrossDeckSlideDonor.splice_donor_to_slide(
+                archetype=req_atype,
+                target_slide=new_slide,
+                theme_palette=palette,
+                used_donors=used_donors
+            )
+            if donor_splice_res:
+                d_path, d_idx = donor_splice_res
 
                 t_shapes = [s for s in new_slide.shapes if s.has_text_frame and s.text_frame.text.strip()]
                 all_text = " ".join([s.text_frame.text.lower() for s in t_shapes])

@@ -462,21 +462,38 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
             tpl_path = find_best_authentic_template(topic)
 
         if tpl_path and os.path.exists(tpl_path):
-            # 1. Shablonni so'ralgan slaydlar soniga moslab qisqartirish (Pruning)
-            pruned_tpl = tpl_path
-            temp_pruned = None
-            try:
-                import tempfile
-                temp_pruned = os.path.join(tempfile.gettempdir(), f"pruned_step_{os.getpid()}_{int(time.time() * 1000)}.pptx")
-                prune_presentation_file(tpl_path, target_count, temp_pruned)
-                if os.path.exists(temp_pruned) and os.path.getsize(temp_pruned) > 5000:
-                    pruned_tpl = temp_pruned
-            except Exception as pe:
-                logger.warning(f"Slide pruning ogohlantirish: {pe}")
-
             slides_raw = spec.get("slides", [])
             formatted_slides = []
+
+            # 1. Muqova (Cover) slaydi: Agar mavjud bo'lmasa, avtomatik birinchi o'ringa qo'yiladi
+            has_cover = any((s.get("archetype") == "cover" or s.get("layout_type") == "cover") for s in slides_raw)
+            if not has_cover:
+                formatted_slides.append({
+                    "title": topic,
+                    "subtitle": spec.get("description") or "Professional tahliliy taqdimot va hisobot",
+                    "layout_type": "cover",
+                    "bullets": [f"Mavzu: {topic}", "Tayyorlovchi: SlaydHub Ultra", f"Yil: {time.strftime('%Y')}"],
+                    "speaker_notes": f"Hurmatli tinglovchilar! Bugungi taqdimotimiz: «{topic}» mavzusiga bag'ishlanadi.",
+                })
+
+            # 2. Reja (Mundarija / Agenda) slaydi: Agar kamida 5 ta slayd so'ralsa, kiritiladi
+            has_agenda = any((s.get("archetype") == "agenda" or s.get("layout_type") == "agenda") for s in slides_raw)
+            if not has_agenda and (target_count >= 5 or len(slides_raw) >= 3):
+                agenda_titles = [str(s.get("heading") or s.get("title") or "").strip() for s in slides_raw if s.get("heading") or s.get("title")]
+                formatted_slides.append({
+                    "title": "Mundarija",
+                    "subtitle": "Taqdimotning asosiy bosqichlari va tuzilishi",
+                    "layout_type": "agenda",
+                    "points": agenda_titles[:6],
+                    "bullets": agenda_titles[:6],
+                    "speaker_notes": "Taqdimotimiz quyidagi asosiy reja bandlarini qamrab oladi.",
+                })
+
+            # 3. Asosiy mazmunli slaydlar (Har biri o'z arxetipiga ega: taqqoslash, infografika, metrika)
             for s in slides_raw:
+                s_atype = s.get("archetype") or s.get("layout_type") or "cards_grid"
+                if s_atype == "cover":
+                    continue
                 bullets = (
                     s.get("points")
                     or s.get("bullets")
@@ -486,25 +503,38 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
                 formatted_slides.append({
                     "title": s.get("heading") or s.get("title") or topic,
                     "subtitle": s.get("subtitle") or "",
+                    "layout_type": s_atype,
                     "bullets": [str(b) for b in bullets if b],
-                    "speaker_notes": s.get("speaker_notes") or s.get("notes") or "",
+                    "points": [str(b) for b in bullets if b],
+                    "speaker_notes": s.get("speaker_notes") or s.get("speaker_note") or s.get("notes") or "",
+                })
+
+            # 4. Xulosa (Conclusion / Q&A) slaydi
+            has_conclusion = any(s.get("archetype") in ("conclusion_sources", "conclusion") or s.get("layout_type") in ("conclusion_sources", "conclusion") for s in slides_raw)
+            if not has_conclusion:
+                formatted_slides.append({
+                    "title": "Xulosa va Tavsiyalar",
+                    "subtitle": "Asosiy xulosalar va muhokama",
+                    "layout_type": "conclusion_sources",
+                    "bullets": [
+                        f"«{topic}» bo'yicha asosiy tahliliy natijalar umumlashtirildi.",
+                        "Zamonaviy amaliyotga tatbiq etish istiqbollari belgilandi.",
+                        "E'tiboringiz uchun rahmat! Savollar va takliflar uchun tayyormiz."
+                    ],
+                    "speaker_notes": "E'tiboringiz uchun katta rahmat! Mavzu yuzasidan savol va takliflaringizni berishingiz mumkin.",
                 })
 
             content_data = {
                 "topic": topic,
                 "slides": formatted_slides,
             }
-            res = replace_presentation_content(pruned_tpl, content_data, out_path, engine_mode="harmonized")
 
-            # Vaqtinchalik qisqartirilgan faylni tozalash
-            if temp_pruned and os.path.exists(temp_pruned):
-                try:
-                    os.remove(temp_pruned)
-                except Exception:
-                    pass
+            # To'liq shablonni to'g'ridan-to'g'ri TemplateDeckAssembler ga uzatamiz:
+            # U barcha 48 slayd ichidan eng moslarini tanlab oladi va qolganini drop_rel bilan o'chiradi
+            res = replace_presentation_content(tpl_path, content_data, out_path, engine_mode="harmonized")
 
             if os.path.exists(res) and os.path.getsize(res) > 10000:
-                logger.info(f"Authentic presentation created from {tpl_path} (Target: {target_count} slides): {res}")
+                logger.info(f"Authentic presentation created from {tpl_path} ({len(formatted_slides)} slides): {res}")
                 return res
     except Exception as e:
         logger.warning(f"Authentic template generation failed, falling back to Penpot: {e}")

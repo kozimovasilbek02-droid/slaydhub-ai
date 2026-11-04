@@ -352,8 +352,9 @@ class CrossDeckSlideDonor:
     17,250 ta shablon va andozalardan mavzu rejasiga eng mos keluvchi
     boy strukturali betlarni (infografika, taqqoslash, jarayon, SWOT, metrika)
     ajratib oluvchi va asosiy taqdimotga rang/shrift uyg'unligida ulovchi donor tizimi.
+    Render 512MB RAM Zero-Hang: Taqdimotlarni xotirada ushlab turmaydi, donor_archetype_index.json
+    orqali xotira sarfini 0 MB ga tushiradi va kerakli slaydni on-demand nusxalab darhol RAMni tozalaydi.
     """
-    _DONOR_CACHE: Dict[str, Presentation] = {}
     _ARCHETYPE_INDEX: Optional[Dict[str, List[Tuple[str, int]]]] = None
 
     @classmethod
@@ -363,23 +364,47 @@ class CrossDeckSlideDonor:
         cls._ARCHETYPE_INDEX = {}
         curr_dir = Path(__file__).resolve().parent.parent
         bundled_dir = curr_dir / "templates"
-        candidate_files = []
-        if bundled_dir.exists():
-            candidate_files.extend(list(bundled_dir.glob("*.pptx")))
+        index_file = bundled_dir / "donor_archetype_index.json"
 
-        # Cloud templates papkasidan ham mavjud to'liq shablonlarni qo'shish
-        cloud_dir = Path(tempfile.gettempdir()) / "soff_ready" / "cloud_templates"
-        if cloud_dir.exists():
-            candidate_files.extend(list(cloud_dir.glob("*.pptx")))
+        # 1. Tezkor va 0 MB RAM: Tayyor oldindan kompilyatsiya qilingan JSON indeksni yuklash
+        if index_file.exists():
+            try:
+                import json
+                with open(index_file, "r", encoding="utf-8") as f:
+                    raw_data = json.load(f)
+                for atype, items in raw_data.items():
+                    cls._ARCHETYPE_INDEX[atype] = []
+                    for fn, s_num in items:
+                        full_p = str(bundled_dir / fn)
+                        if os.path.exists(full_p):
+                            cls._ARCHETYPE_INDEX[atype].append((full_p, s_num))
+                logger.info(f"CrossDeckDonor: {sum(len(v) for v in cls._ARCHETYPE_INDEX.values())} ta toza donor slayd indeksi yuklandi (0 MB RAM).")
+                return
+            except Exception as e:
+                logger.warning(f"Error loading donor index JSON: {e}")
+
+        # 2. Dinamik fallback (faqat JSON bo'lmaganda):
+        from core.pptx_text_replacer import AdSlideFilter
+        import gc
+        candidate_files = list(bundled_dir.glob("*.pptx")) if bundled_dir.exists() else []
 
         for pptx_file in candidate_files:
+            if pptx_file.name.startswith(("~$", "pruned_")):
+                continue
             p_str = str(pptx_file)
             try:
                 prs = Presentation(p_str)
-                cls._DONOR_CACHE[p_str] = prs
-                for idx, s in enumerate(prs.slides):
+                for s_idx, s in enumerate(prs.slides):
+                    if AdSlideFilter.is_ad_or_credit_slide(s):
+                        continue
                     t_shapes = [shp for shp in s.shapes if shp.has_text_frame and shp.text_frame.text.strip()]
                     all_text = " ".join([shp.text_frame.text.lower() for shp in t_shapes])
+
+                    # Ikonkalar to'plami yoki bo'sh maketlarni chetlab o'tish
+                    pic_count = sum(1 for shp in s.shapes if shp.shape_type == MSO_SHAPE_TYPE.PICTURE)
+                    small_shapes = sum(1 for shp in s.shapes if (shp.width and shp.width.pt < 65) and (shp.height and shp.height.pt < 65))
+                    if small_shapes >= 8 or (pic_count >= 5 and len(t_shapes) <= 3) or (len(s.shapes) >= 15 and len(t_shapes) <= 1):
+                        continue
 
                     has_agenda = any(k in all_text for k in ["table of contents", "agenda", "contents", "index", "reja"])
                     has_step = any(k in all_text for k in ["step 01", "step 1", "01.", "steps", "process", "bosqich"])
@@ -389,7 +414,7 @@ class CrossDeckSlideDonor:
                     has_credits = any(k in all_text for k in ["thank you", "thanks", "conclusion", "contact", "qa", "xulosa", "savollar"])
 
                     atype = "general"
-                    if idx == 0:
+                    if s_idx == 0:
                         atype = "cover"
                     elif has_agenda:
                         atype = "agenda"
@@ -408,19 +433,31 @@ class CrossDeckSlideDonor:
                     else:
                         atype = "cards_grid"
 
-                    cls._ARCHETYPE_INDEX.setdefault(atype, []).append((p_str, idx))
+                    cls._ARCHETYPE_INDEX.setdefault(atype, []).append((p_str, s_idx))
+                del prs
+                gc.collect()
             except Exception as e:
                 logger.debug(f"Donor index error for {pptx_file}: {e}")
 
     @classmethod
-    def get_donor_slide(cls, archetype: str, used_donors: set) -> Optional[Tuple[Any, str, int]]:
+    def splice_donor_to_slide(
+        cls,
+        archetype: str,
+        target_slide: Any,
+        theme_palette: Optional[Dict[str, Any]],
+        used_donors: set
+    ) -> Optional[Tuple[str, int]]:
+        """
+        Tanlangan arxetip bo'yicha donor slaydni topib, to'g'ridan-to'g'ri target_slide ga
+        nusxalaydi va donor taqdimotni xotiradan darhol tozalaydi (Zero Memory Leak).
+        """
+        import gc
         cls._ensure_index()
         if not cls._ARCHETYPE_INDEX:
             return None
 
         candidates = cls._ARCHETYPE_INDEX.get(archetype, [])
         if not candidates:
-            # Mos arxetip bo'lmasa cards_grid yoki general dan tanlaymiz
             candidates = cls._ARCHETYPE_INDEX.get("cards_grid", []) or cls._ARCHETYPE_INDEX.get("general", [])
 
         for p_path, s_idx in candidates:
@@ -428,13 +465,41 @@ class CrossDeckSlideDonor:
             if donor_key in used_donors:
                 continue
             used_donors.add(donor_key)
-            if p_path not in cls._DONOR_CACHE:
-                try:
-                    cls._DONOR_CACHE[p_path] = Presentation(p_path)
-                except Exception:
-                    continue
-            donor_prs = cls._DONOR_CACHE[p_path]
-            if s_idx < len(donor_prs.slides):
-                return donor_prs.slides[s_idx], p_path, s_idx
+            try:
+                donor_prs = Presentation(p_path)
+                if s_idx < len(donor_prs.slides):
+                    donor_slide = donor_prs.slides[s_idx]
+                    HarmonizedSlideCloner.clone_slide_to_target(donor_slide, target_slide, theme_palette=theme_palette)
+                    del donor_prs
+                    gc.collect()
+                    return p_path, s_idx
+            except Exception as e:
+                logger.debug(f"Failed to clone donor slide {donor_key}: {e}")
+                continue
+
+        return None
+
+    @classmethod
+    def get_donor_slide(cls, archetype: str, used_donors: set) -> Optional[Tuple[Any, str, int]]:
+        """Eski interfeys bilan moslik uchun (on-demand ochadi)."""
+        cls._ensure_index()
+        if not cls._ARCHETYPE_INDEX:
+            return None
+
+        candidates = cls._ARCHETYPE_INDEX.get(archetype, [])
+        if not candidates:
+            candidates = cls._ARCHETYPE_INDEX.get("cards_grid", []) or cls._ARCHETYPE_INDEX.get("general", [])
+
+        for p_path, s_idx in candidates:
+            donor_key = f"{p_path}#{s_idx}"
+            if donor_key in used_donors:
+                continue
+            used_donors.add(donor_key)
+            try:
+                donor_prs = Presentation(p_path)
+                if s_idx < len(donor_prs.slides):
+                    return donor_prs.slides[s_idx], p_path, s_idx
+            except Exception:
+                continue
 
         return None

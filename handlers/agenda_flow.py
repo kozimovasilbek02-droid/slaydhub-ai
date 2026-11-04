@@ -848,7 +848,11 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
             )
 
             # Soff.uz va DTM Test registratsiyasi
-            actual_slides_count = len(full_spec.get("slides", [])) + 2
+            try:
+                from pptx import Presentation
+                actual_slides_count = len(Presentation(out_path).slides)
+            except Exception:
+                actual_slides_count = len(full_spec.get("slides", [])) + 2
             soff_price = 3000 if actual_slides_count <= 6 else 7000 if actual_slides_count <= 12 else 10000
             upload_id = f"{user_id}_{int(time.time())}"
             PENDING_UPLOADS[upload_id] = {

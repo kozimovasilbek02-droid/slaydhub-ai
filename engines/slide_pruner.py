@@ -42,29 +42,38 @@ class SlidePruner:
 
     def _calculate_retained_indices(self, total: int, target_count: int) -> Set[int]:
         """
-        Muqova (0), Reja (1), Xulosa (total-1) va oraliq arxetiplarni proporsional tanlaydi.
+        Muqova (0), Reja (1), Xulosa va oraliq arxetiplarni reklama, ikonka to'plami va bo'sh maketlarsiz tanlaydi.
         """
+        from core.pptx_text_replacer import AdSlideFilter
+        valid_indices = []
+        for i in range(total):
+            try:
+                if not AdSlideFilter.is_ad_or_credit_slide(self.prs.slides[i]):
+                    valid_indices.append(i)
+            except Exception:
+                valid_indices.append(i)
+
+        if not valid_indices:
+            valid_indices = list(range(total))
+
+        if target_count >= len(valid_indices):
+            return set(valid_indices)
+
         if target_count <= 1:
-            return {0}
+            return {valid_indices[0]}
         if target_count == 2:
-            return {0, total - 1}
+            return {valid_indices[0], valid_indices[-1]}
 
-        retained: Set[int] = {0, total - 1}
-
-        # Agar kamida 4 ta slayd so'ralsa, 2-slaydni (odatda Agenda/Reja) saqlashga harakat qilamiz
-        middle_candidates = list(range(1, total - 1))
+        retained: Set[int] = {valid_indices[0], valid_indices[-1]}
+        middle_candidates = valid_indices[1:-1]
         needed_middle = target_count - 2
 
         if needed_middle > 0 and middle_candidates:
-            # Oraliq slaydlardan teng qadam bilan eng xilma-xil maketlarni tanlaymiz
             step = max(1, len(middle_candidates) // needed_middle)
             selected = middle_candidates[::step][:needed_middle]
-            
-            # Agar bo'sh o'rin qolsa, qolganlaridan to'ldiramiz
             if len(selected) < needed_middle:
                 remaining = [idx for idx in middle_candidates if idx not in selected]
                 selected.extend(remaining[: (needed_middle - len(selected))])
-
             retained.update(selected)
 
         return retained
