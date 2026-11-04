@@ -99,6 +99,13 @@ class HarmonizedSlideCloner:
             except Exception:
                 pass
 
+        # Round 15 Zero-Defect: Purge any zombie animation targets left on target_slide
+        try:
+            from core.animation_guardian import AnimationGuardian
+            AnimationGuardian.purge_zombie_animations(target_slide)
+        except Exception:
+            pass
+
         # 1. Replicate authentic background (Solid, Gradient, Texture, or BlipFill) via SplicerGuardian
         SplicerGuardian.replicate_slide_background(source_slide, target_slide)
 

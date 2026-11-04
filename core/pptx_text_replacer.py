@@ -118,7 +118,8 @@ WATERMARK_PATTERNS = [
     r'freepik(\.com)?',
     r'flaticon(\.com)?',
     r'free\s+powerpoint\s+templates?',
-    r'designed\s+with\s+.*?by',
+    r'designed\s+(?:with|by)\s+[a-z0-9\s&]+',
+    r'designed\s+(?:with|by)',
     r'questions\s+or\s+need\s+help',
     r'credits?\s*:\s*this\s+presentation',
     r'fonts\s*&\s*colors\s*used',
@@ -3202,6 +3203,12 @@ class PPTXTextReplacer:
         except Exception as e:
             logger.debug(f"Image injection error: {e}")
 
+        # Round 15 Zero-Defect: Purge any zombie animation targets left behind by removed shapes or watermarks
+        try:
+            AnimationGuardian.purge_zombie_animations(slide)
+        except Exception as e_anim:
+            logger.debug(f"AnimationGuardian purge error in replace_slide_content: {e_anim}")
+
 
 class TemplateDeckAssembler:
     """
@@ -3471,6 +3478,12 @@ class TemplateDeckAssembler:
                 )
             except Exception as e_notes:
                 logger.debug(f"Dual-track speaker notes skipped for slide {idx}: {e_notes}")
+
+            # Round 15 Zero-Defect: Purge zombie animations across all finalized slides
+            try:
+                AnimationGuardian.purge_zombie_animations(slide)
+            except Exception as e_anim:
+                logger.debug(f"AnimationGuardian purge error in assemble_full_deck: {e_anim}")
 
         # 5. Motion Storytelling: Apply PowerPoint Native Morph & Cinematic Transitions
         try:

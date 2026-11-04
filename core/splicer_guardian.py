@@ -143,6 +143,13 @@ class SplicerGuardian:
                     AnimationGuardian.remap_animation_target_ids(slide, id_map)
                 except Exception as e:
                     logger.debug(f"Animation remapping error: {e}")
+
+            # Purge any zombie animation targets left behind
+            try:
+                from core.animation_guardian import AnimationGuardian
+                AnimationGuardian.purge_zombie_animations(slide)
+            except Exception as e:
+                logger.debug(f"Animation purge error: {e}")
         except Exception as e:
             logger.debug(f"Failed to assign unique IDs: {e}")
 
