@@ -9,4 +9,4 @@ echo "==> [BUILD] Barcha bog'liqliklar requirements.txt dan o'rnatilmoqda..."
 pip install -r requirements.txt
 
 echo "==> [BUILD] O'rnatilgan paketlar tekshirilmoqda..."
-python -c "import aiogram, aiohttp, pptx, docx, reportlab, fitz, google.genai; print('✅ Barcha modellar va kutubxonalar muvaffaqiyatli yuklandi!')"
+python -c "import aiogram, aiohttp, pptx, docx, reportlab, fitz, google.genai; print('[OK] Barcha modellar va kutubxonalar muvaffaqiyatli yuklandi!')"
