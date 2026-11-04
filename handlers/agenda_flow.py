@@ -204,9 +204,9 @@ def get_agenda_editor_keyboard(template_title: str) -> InlineKeyboardMarkup:
 @router.message(Command("catalog"))
 @router.callback_query(F.data == "menu_catalog")
 async def show_catalog_menu(event: Message | CallbackQuery, state: FSMContext):
+    """17,250 ta shablonning toifalar katalogi."""
     if isinstance(event, Message):
         await state.clear()
-    """17,250 ta shablonning toifalar katalogi."""
     txt = (
         "🗂️ <b>SLAYDHUB ULTRA — 17,250 TA SHABLONLAR KATALOGI</b>\n\n"
         "Barcha shablonlar professional OpenXML formatida bo'lib, haqiqiy 3D grafikalar, "
@@ -236,9 +236,9 @@ async def show_catalog_menu(event: Message | CallbackQuery, state: FSMContext):
 @router.message(Command("search"))
 @router.callback_query(F.data == "menu_search_prompt")
 async def handle_search_command(event: Message | CallbackQuery, state: FSMContext):
+    """17,250 ta shablondan semantik kalit so'z bo'yicha qidirish."""
     if isinstance(event, Message):
         await state.clear()
-    """17,250 ta shablondan semantik kalit so'z bo'yicha qidirish."""
     query = ""
     if isinstance(event, Message) and event.text:
         parts = event.text.split(maxsplit=1)
@@ -282,7 +282,7 @@ async def process_search_query_input(message: Message, state: FSMContext):
 
 async def execute_search(query: str, event: Message | CallbackQuery, state: FSMContext):
     """Semantik qidiruvni bajaradi va karuselni chiqaradi."""
-    smart_matches = GLOBAL_TEMPLATE_CATALOG.smart_search(query, top_k=8)
+    smart_matches = await asyncio.to_thread(GLOBAL_TEMPLATE_CATALOG.smart_search, query, 8)
     if not smart_matches:
         txt = (
             f"🔍 <b>«{html.escape(query)}»</b> bo'yicha aniq mos shablon topilmadi.\n\n"
@@ -383,7 +383,9 @@ async def process_topic_input(message: Message, state: FSMContext):
     rec_cat = GLOBAL_TEMPLATE_CATALOG.detect_category(topic)
 
     # 17,250 ta shablon ichidan mavzuga eng mos shablonlarni topish
-    smart_matches = GLOBAL_TEMPLATE_CATALOG.smart_search(topic, top_k=6, category=rec_cat)
+    smart_matches = await asyncio.to_thread(
+        GLOBAL_TEMPLATE_CATALOG.smart_search, topic, 6, rec_cat
+    )
     smart_ids = [t["id"] for t in smart_matches]
     await state.update_data(raw_topic=topic, rec_cat=rec_cat, smart_ids=smart_ids)
     await state.set_state(SlideCreationFSM.selecting_category)
@@ -433,7 +435,10 @@ async def show_template_card(
         templates = [GLOBAL_TEMPLATE_CATALOG.get_template(tid) for tid in smart_ids if GLOBAL_TEMPLATE_CATALOG.get_template(tid)]
         if not templates:
             query = data.get("search_query") or data.get("raw_topic", "")
-            templates = GLOBAL_TEMPLATE_CATALOG.smart_search(query, top_k=8)
+            templates = await asyncio.to_thread(GLOBAL_TEMPLATE_CATALOG.smart_search, query, 8)
+        if not templates and cat_key == "smart":
+            rec_cat = data.get("rec_cat", "minimal")
+            templates = GLOBAL_TEMPLATE_CATALOG.get_templates_by_category(rec_cat)[:8]
         if cat_key == "search":
             q_display = data.get("search_query", "Qidiruv")
             cat_info = {"name": f"«{q_display}» bo'yicha qidiruv natijalari", "emoji": "🔍", "badge": "Qidiruv"}
@@ -717,175 +722,180 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
         return
 
     ACTIVE_BUILDS.add(user_id)
-
-    user = await get_or_create_user(user_id)
-    used_free_credit = await use_free_credit(user_id)
-    used_paid_balance = False
-    slide_price = 3000
-
-    if not used_free_credit:
-        used_paid_balance = await debit_user_balance(user_id, slide_price)
-        if not used_paid_balance:
-            txt = (
-                f"⚠️ <b>Balansingiz yetarli emas!</b>\n\n"
-                f"Slayd narxi: {slide_price:,} so'm\n"
-                f"Sizning balansingiz: {user.get('balance_uzs', 0):,} so'm\n\n"
-                f"<i>Iltimos, Click yoki Payme orqali hisobingizni to'ldiring yoki do'stlaringizni taklif qilib bepul kreditga ega bo'ling!</i>"
-            )
-            kb = [
-                [InlineKeyboardButton(text="💳 Hamyonni to'ldirish", callback_data="menu_cabinet")],
-                [InlineKeyboardButton(text="👥 Referal orqali bepul olish", callback_data="menu_referral")],
-            ]
-            await callback.message.answer(
-                txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML"
-            )
-            await callback.answer()
-            return
-
-    await callback.answer()
-    data = draft["data"]
-    title = data.get("title", "Taqdimot")
-    agenda = data.get("agenda", [])
-    tpl_id = data.get("template_id", "tpl_med_heartbeat")
-    tpl_title = data.get("template_title", "Shablon")
-    target_count = data.get("target_slide_count", len(agenda))
-    category_id = data.get("category_id", 1463)
-
-    # 1-bosqich: Dastlabki progress xabari
-    status_msg = await callback.message.edit_text(
-        f"⏳ <b>[1/3] 🔍 Shablon tayyorlanmoqda...</b>\n\n"
-        f"<i>«{html.escape(tpl_title)}» (17,250 ta shablon ichidan) yuklanmoqda...</i>\n\n"
-        f"<code>▰▰▰▱▱▱▱▱▱▱</code> <b>33%</b>",
-        parse_mode="HTML",
-    )
-
-    async def _update_progress(step_text: str, bar: str, percent: str):
-        try:
-            await status_msg.edit_text(
-                f"{step_text}\n\n<code>{bar}</code> <b>{percent}</b>",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
-
-    async def _build_slide_job():
-        # Cloud shablon mavjudligini ta'minlash (agar lokal bo'lmasa, Telegram Cloud'dan yuklaydi)
-        resolved_pptx = await GLOBAL_TEMPLATE_CATALOG.ensure_template_pptx_available(tpl_id, bot=callback.bot)
-
-        # 2-bosqich: Gemini AI matnlarni yozishi
-        await _update_progress(
-            f"🧠 <b>[2/3] ✍️ Gemini AI slaydlar matnini yozmoqda...</b>\n\n"
-            f"<i>{target_count} ta slayd uchun professional struktura va matnlar yaratilmoqda...</i>",
-            "▰▰▰▰▰▰▱▱▱▱",
-            "66%"
-        )
-
-        stage2_prompt = build_stage2_locked_expansion_prompt(
-            title, locked_agenda=agenda, context_excerpt=data.get("raw_topic", "")
-        )
-        slides_res, err = await call_gemini_cascade(
-            stage2_prompt, schema=STAGE2_SLIDES_SCHEMA, max_output_tokens=4096
-        )
-        if not slides_res or "slides" not in slides_res:
-            raise RuntimeError(err or "Slayd matnlarini generatsiya qilishda xatolik")
-
-        # 3-bosqich: Slaydlar formatlash va Animation Guardian
-        await _update_progress(
-            f"🎨 <b>[3/3] 🛠️ Slaydlar formatlanmoqda va tekshirilmoqda...</b>\n\n"
-            f"<i>Animation Guardian animatsiyalarni tekshirmoqda, slaydlar qisqartirilmoqda...</i>",
-            "▰▰▰▰▰▰▰▰▰▱",
-            "95%"
-        )
-
-        full_spec = {
-            "title": title,
-            "topic": title,
-            "template_id": tpl_id,
-            "resolved_pptx_path": resolved_pptx,
-            "target_slide_count": target_count,
-            "slides": slides_res.get("slides", []),
-            "description": slides_res.get("description", ""),
-            "tags": slides_res.get("tags", ""),
-        }
-
-        perm_dir = os.path.join(tempfile.gettempdir(), "soff_ready")
-        os.makedirs(perm_dir, exist_ok=True)
-        out_path = os.path.join(perm_dir, f"slide_{user_id}_{int(time.time() * 1000)}.pptx")
-
-        # C/XML dvigatel orqali shablonni kesish va matnni joylashtirish
-        await run_ram_heavy_sync(generate_pptx_file, full_spec, out_path)
-        enforce_tmp_quota(perm_dir)
-
-        await _update_progress(
-            f"✅ <b>[100%] 🎉 Taqdimot muvaffaqiyatli tayyorlandi!</b>\n\n"
-            f"<i>Fayl yuklanmoqda...</i>",
-            "▰▰▰▰▰▰▰▰▰▰",
-            "100%"
-        )
-        return full_spec, out_path
-
-    # Priority 1 = Paid B2C, Priority 2 = Free Credit
-    job_priority = 1 if used_paid_balance else 2
     try:
-        full_spec, out_path = await GLOBAL_SCHEDULER.submit(
-            priority=job_priority,
-            job_id=f"pptx_{user_id}_{int(time.time())}",
-            coro_factory=_build_slide_job,
-        )
-    except Exception as exc:
-        if used_free_credit:
-            await refund_free_credit(user_id)
-        elif used_paid_balance:
-            await refund_user_balance(user_id, slide_price)
-        await status_msg.edit_text(
-            f"❌ Slayd yaratishda xatolik: {html.escape(str(exc))}\n"
-            f"<i>Hisobingizdan mablag' yechilmadi (qaytarildi). Qayta urinib ko'ring.</i>",
+        user = await get_or_create_user(user_id)
+        used_free_credit = await use_free_credit(user_id)
+        used_paid_balance = False
+        slide_price = 3000
+
+        if not used_free_credit:
+            used_paid_balance = await debit_user_balance(user_id, slide_price)
+            if not used_paid_balance:
+                txt = (
+                    f"⚠️ <b>Balansingiz yetarli emas!</b>\n\n"
+                    f"Slayd narxi: {slide_price:,} so'm\n"
+                    f"Sizning balansingiz: {user.get('balance_uzs', 0):,} so'm\n\n"
+                    f"<i>Iltimos, Click yoki Payme orqali hisobingizni to'ldiring yoki do'stlaringizni taklif qilib bepul kreditga ega bo'ling!</i>"
+                )
+                kb = [
+                    [InlineKeyboardButton(text="💳 Hamyonni to'ldirish", callback_data="menu_cabinet")],
+                    [InlineKeyboardButton(text="👥 Referal orqali bepul olish", callback_data="menu_referral")],
+                ]
+                await callback.message.answer(
+                    txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML"
+                )
+                await callback.answer()
+                return
+
+        await callback.answer()
+        data = draft["data"]
+        title = data.get("title", "Taqdimot")
+        agenda = data.get("agenda", [])
+        tpl_id = data.get("template_id", "tpl_med_heartbeat")
+        tpl_title = data.get("template_title", "Shablon")
+        target_count = data.get("target_slide_count", len(agenda))
+        category_id = data.get("category_id", 1463)
+
+        # 1-bosqich: Dastlabki progress xabari
+        status_msg = await callback.message.edit_text(
+            f"⏳ <b>[1/3] 🔍 Shablon tayyorlanmoqda...</b>\n\n"
+            f"<i>«{html.escape(tpl_title)}» (17,250 ta shablon ichidan) yuklanmoqda...</i>\n\n"
+            f"<code>▰▰▰▱▱▱▱▱▱▱</code> <b>33%</b>",
             parse_mode="HTML",
         )
+
+        async def _update_progress(step_text: str, bar: str, percent: str):
+            try:
+                await status_msg.edit_text(
+                    f"{step_text}\n\n<code>{bar}</code> <b>{percent}</b>",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+        async def _build_slide_job():
+            # Cloud shablon mavjudligini ta'minlash (agar lokal bo'lmasa, Telegram Cloud'dan yuklaydi)
+            resolved_pptx = await GLOBAL_TEMPLATE_CATALOG.ensure_template_pptx_available(tpl_id, bot=callback.bot)
+
+            # 2-bosqich: Gemini AI matnlarni yozishi
+            await _update_progress(
+                f"🧠 <b>[2/3] ✍️ Gemini AI slaydlar matnini yozmoqda...</b>\n\n"
+                f"<i>{target_count} ta slayd uchun professional struktura va matnlar yaratilmoqda...</i>",
+                "▰▰▰▰▰▰▱▱▱▱",
+                "66%"
+            )
+
+            stage2_prompt = build_stage2_locked_expansion_prompt(
+                title, locked_agenda=agenda, context_excerpt=data.get("raw_topic", "")
+            )
+            slides_res, err = await call_gemini_cascade(
+                stage2_prompt, schema=STAGE2_SLIDES_SCHEMA, max_output_tokens=4096
+            )
+            if not slides_res or "slides" not in slides_res:
+                raise RuntimeError(err or "Slayd matnlarini generatsiya qilishda xatolik")
+
+            # 3-bosqich: Slaydlar formatlash va Animation Guardian
+            await _update_progress(
+                f"🎨 <b>[3/3] 🛠️ Slaydlar formatlanmoqda va tekshirilmoqda...</b>\n\n"
+                f"<i>Animation Guardian animatsiyalarni tekshirmoqda, slaydlar qisqartirilmoqda...</i>",
+                "▰▰▰▰▰▰▰▰▰▱",
+                "95%"
+            )
+
+            full_spec = {
+                "title": title,
+                "topic": title,
+                "template_id": tpl_id,
+                "resolved_pptx_path": resolved_pptx,
+                "target_slide_count": target_count,
+                "slides": slides_res.get("slides", []),
+                "description": slides_res.get("description", ""),
+                "tags": slides_res.get("tags", ""),
+            }
+
+            perm_dir = os.path.join(tempfile.gettempdir(), "soff_ready")
+            os.makedirs(perm_dir, exist_ok=True)
+            out_path = os.path.join(perm_dir, f"slide_{user_id}_{int(time.time() * 1000)}.pptx")
+
+            # C/XML dvigatel orqali shablonni kesish va matnni joylashtirish
+            await run_ram_heavy_sync(generate_pptx_file, full_spec, out_path)
+            enforce_tmp_quota(perm_dir)
+
+            await _update_progress(
+                f"✅ <b>[100%] 🎉 Taqdimot muvaffaqiyatli tayyorlandi!</b>\n\n"
+                f"<i>Fayl yuklanmoqda...</i>",
+                "▰▰▰▰▰▰▰▰▰▰",
+                "100%"
+            )
+            return full_spec, out_path
+
+        # Priority 1 = Paid B2C, Priority 2 = Free Credit
+        job_priority = 1 if used_paid_balance else 2
+        try:
+            full_spec, out_path = await GLOBAL_SCHEDULER.submit(
+                priority=job_priority,
+                job_id=f"pptx_{user_id}_{int(time.time())}",
+                coro_factory=_build_slide_job,
+            )
+        except Exception as exc:
+            if used_free_credit:
+                await refund_free_credit(user_id)
+            elif used_paid_balance:
+                await refund_user_balance(user_id, slide_price)
+            await status_msg.edit_text(
+                f"❌ Slayd yaratishda xatolik: {html.escape(str(exc))}\n"
+                f"<i>Hisobingizdan mablag' yechilmadi (qaytarildi). Qayta urinib ko'ring.</i>",
+                parse_mode="HTML",
+            )
+            return
+
+        # Soff.uz va DTM Test registratsiyasi
+        actual_slides_count = len(full_spec.get("slides", [])) + 2
+        soff_price = 3000 if actual_slides_count <= 6 else 7000 if actual_slides_count <= 12 else 10000
+        upload_id = f"{user_id}_{int(time.time())}"
+        PENDING_UPLOADS[upload_id] = {
+            "file_path": out_path,
+            "title": title,
+            "description": full_spec.get("description", f"{title} bo'yicha taqdimot"),
+            "price": soff_price,
+            "category_id": category_id,
+            "tags": full_spec.get("tags", ""),
+            "created_at": time.time(),
+        }
+
+        await delete_draft(user_id, "pptx")
+        await state.clear()
+
+        safe_fn = "".join(c for c in title if c.isalnum() or c in (" ", "_", "-")).strip()[:45] or "Taqdimot"
+        doc_file = FSInputFile(out_path, filename=f"{safe_fn}.pptx")
+        kb_after = [
+            [
+                InlineKeyboardButton(
+                    text="📋 Shu mavzuda DTM Test yaratish", callback_data=f"make_quiz_{upload_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🛒 Soff.uz do'koniga sotuvga qo'yish", callback_data=f"soff_upload_{upload_id}"
+                )
+            ],
+            [InlineKeyboardButton(text="◀️ Asosiy menyu", callback_data="menu_home")],
+        ]
+
+        await callback.message.answer_document(
+            doc_file,
+            caption=(
+                f"✅ <b>«{html.escape(str(title))}»</b> taqdimoti muvaffaqiyatli tayyorlandi!\n\n"
+                f"🎨 <b>Shablon:</b> {html.escape(tpl_title)}\n"
+                f"📊 <b>Slaydlar soni:</b> {actual_slides_count} ta (Muqova, Reja va Xulosa bilan)\n"
+                f"💰 <b>Soff.uz tavsiya narxi:</b> {soff_price:,} so'm"
+            ),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_after),
+            parse_mode="HTML",
+        )
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+    finally:
         ACTIVE_BUILDS.discard(user_id)
-        return
-
-    # Soff.uz va DTM Test registratsiyasi
-    actual_slides_count = len(full_spec.get("slides", [])) + 2
-    soff_price = 3000 if actual_slides_count <= 6 else 7000 if actual_slides_count <= 12 else 10000
-    upload_id = f"{user_id}_{int(time.time())}"
-    PENDING_UPLOADS[upload_id] = {
-        "file_path": out_path,
-        "title": title,
-        "description": full_spec.get("description", f"{title} bo'yicha taqdimot"),
-        "price": soff_price,
-        "category_id": category_id,
-        "tags": full_spec.get("tags", ""),
-        "created_at": time.time(),
-    }
-
-    await delete_draft(user_id, "pptx")
-    await state.clear()
-
-    safe_fn = "".join(c for c in title if c.isalnum() or c in (" ", "_", "-")).strip()[:45] or "Taqdimot"
-    doc_file = FSInputFile(out_path, filename=f"{safe_fn}.pptx")
-    kb_after = [
-        [
-            InlineKeyboardButton(
-                text="📋 Shu mavzuda DTM Test yaratish", callback_data=f"make_quiz_{upload_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="🛒 Soff.uz do'koniga sotuvga qo'yish", callback_data=f"soff_upload_{upload_id}"
-            )
-        ],
-        [InlineKeyboardButton(text="◀️ Asosiy menyu", callback_data="menu_home")],
-    ]
-
-    await callback.message.answer_document(
-        doc_file,
-        caption=(
-            f"✅ <b>«{html.escape(str(title))}»</b> taqdimoti muvaffaqiyatli tayyorlandi!\n\n"
-            f"🎨 <b>Shablon:</b> {html.escape(tpl_title)}\n"
-            f"📊 <b>Slaydlar soni:</b> {actual_slides_count} ta (Muqova, Reja va Xulosa bilan)\n"
-            f"💰 <b>Soff.uz tavsiya narxi:</b> {soff_price:,} so'm"
-        ),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_after),
-        parse_mode="HTML",
-    )

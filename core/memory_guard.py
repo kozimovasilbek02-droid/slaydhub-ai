@@ -80,6 +80,8 @@ def enforce_tmp_quota(target_dir: str) -> None:
     total_bytes = 0
     for root, _, files in os.walk(target_dir):
         for fn in files:
+            if fn.endswith(".part"):
+                continue  # In-flight yuklanayotgan faylni himoya qilish
             fp = os.path.join(root, fn)
             try:
                 st = os.stat(fp)
