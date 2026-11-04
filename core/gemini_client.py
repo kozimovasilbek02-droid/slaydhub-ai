@@ -76,12 +76,23 @@ STAGE2_SLIDES_SCHEMA = {
             "type": "ARRAY",
             "items": {
                 "type": "OBJECT",
-                "required": ["heading", "archetype", "points", "speaker_note"],
+                "required": ["heading", "archetype", "cards", "points", "speaker_note"],
                 "properties": {
                     "heading": {"type": "STRING"},
                     "archetype": {
                         "type": "STRING",
                         "enum": ["cards_grid", "comparison_vs", "timeline_steps", "theory_concept"],
+                    },
+                    "cards": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "required": ["title", "desc"],
+                            "properties": {
+                                "title": {"type": "STRING"},
+                                "desc": {"type": "STRING"},
+                            },
+                        },
                     },
                     "points": {"type": "ARRAY", "items": {"type": "STRING"}},
                     "speaker_note": {"type": "STRING"},
@@ -290,18 +301,25 @@ def build_stage2_locked_expansion_prompt(
     """
     Bosqich 2: Foydalanuvchi tahrirlab tasdiqlagan LOCKED_AGENDA ro'yxatiga 100% bo'ysunib,
     har bir band uchun aniq bittadan slayd generatsiya qilish.
+    Har bir slayd uchun 3-4 ta to'liq tahliliy kartochka (sarlavha + batafsil ilmiy matn) yaratish.
     """
     numbered_agenda = "\n".join(f"{i}. {heading}" for i, heading in enumerate(locked_agenda, 1))
     return (
-        f"Taqdimot sarlavhasi: {title}\n"
+        f"Sen O'zbekistonning yetakchi ilmiy eksperti va xalqaro darajadagi professional taqdimot muallifisan.\n"
+        f"Taqdimot mavzusi: «{title}»\n"
         f"Foydalanuvchi tomonidan tasdiqlangan QAT'IY REJA ({len(locked_agenda)} ta band):\n"
         f"{numbered_agenda}\n\n"
         f"Qo'shimcha kontekst:\n{context_excerpt[:12000]}\n\n"
-        f"QAT'IY QOIDALAR:\n"
-        f"1. 'slides' massivida aniq {len(locked_agenda)} ta slayd bo'lishi shart — har bir reja bandiga 1 tadan!\n"
-        f"2. Reja sarlavhalarini ('heading') ma'nosini o'zgartirma.\n"
-        f"3. Har bir slaydda 3-4 tadan ilmiy asoslangan punkt ('points'), mos 'archetype' va qisqa 'speaker_note' yoz.\n"
-        f"4. Har bir slaydda o'zbek adabiy tili va ilmiy uslub qoidalariga rioya qil."
+        f"QAT'IY TALABLAR VA SIFAT STANDARTLARI:\n"
+        f"1. 'slides' massivida aniq {len(locked_agenda)} ta slayd bo'lishi shart — har bir reja bandiga aniq 1 tadan!\n"
+        f"2. Reja sarlavhalarini ('heading') rejadagi tartib va ma'noda o'zgartirmasdan aynan saqla.\n"
+        f"3. HAR BIR SLAYDDA aniq 3 tadan 4 tagacha tahliliy kartochka ('cards') bo'lishi shart:\n"
+        f"   - 'title': Kartochka sarlavhasi (2-5 ta so'zdan iborat aniq ilmiy/amaliy termin yoki yo'nalish);\n"
+        f"   - 'desc': 25-45 so'zdan iborat chuqur, ma'lumotga boy tushuntirish (texnik mexanizmi, raqamlar/foizlar, xalqaro tajriba, amaliy natija va afzalliklari bilan to'liq 2-3 ta gap);\n"
+        f"   - Qisqa, 1-2 so'zli yoki umumiy gaplar mutlaqo taqiqlanadi!\n"
+        f"4. 'points' massiviga har bir kartochkani 'Sarlavha: Batafsil tushuntirish...' shaklida to'liq joylashtir.\n"
+        f"5. 'speaker_note' maydoniga spiker nutqi uchun 1-2 ta jiddiy akademik xulosa yoz.\n"
+        f"6. O'zbek adabiy tilida (lotin yozuvida), to'liq orfografik to'g'ri, professional terminologiya bilan yoz."
     )
 
 

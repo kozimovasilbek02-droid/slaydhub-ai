@@ -494,20 +494,28 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
                 s_atype = s.get("archetype") or s.get("layout_type") or "cards_grid"
                 if s_atype == "cover":
                     continue
-                bullets = (
-                    s.get("points")
-                    or s.get("bullets")
-                    or [c.get("text", "") for c in s.get("cards", []) if isinstance(c, dict)]
-                    or [s.get("content", "")]
-                )
-                formatted_slides.append({
-                    "title": s.get("heading") or s.get("title") or topic,
-                    "subtitle": s.get("subtitle") or "",
-                    "layout_type": s_atype,
-                    "bullets": [str(b) for b in bullets if b],
-                    "points": [str(b) for b in bullets if b],
-                    "speaker_notes": s.get("speaker_notes") or s.get("speaker_note") or s.get("notes") or "",
-                })
+                cards_raw = s.get("cards", [])
+                if cards_raw and isinstance(cards_raw, list):
+                    bullets = [
+                        f"{c.get('title', '').strip()}: {c.get('desc', '').strip()}" if c.get("title") and c.get("desc")
+                        else (c.get("title") or c.get("desc") or "")
+                        for c in cards_raw if isinstance(c, dict)
+                    ]
+                else:
+                    bullets = (
+                        s.get("points")
+                        or s.get("bullets")
+                        or [s.get("content", "")]
+                    )
+                slide_dict = dict(s)
+                slide_dict["title"] = s.get("heading") or s.get("title") or topic
+                slide_dict["subtitle"] = s.get("subtitle") or ""
+                slide_dict["layout_type"] = s_atype
+                slide_dict["bullets"] = [str(b) for b in bullets if b]
+                slide_dict["points"] = [str(b) for b in bullets if b]
+                slide_dict["cards"] = cards_raw
+                slide_dict["speaker_notes"] = s.get("speaker_notes") or s.get("speaker_note") or s.get("notes") or ""
+                formatted_slides.append(slide_dict)
 
             # 4. Xulosa (Conclusion / Q&A) slaydi
             has_conclusion = any(s.get("archetype") in ("conclusion_sources", "conclusion") or s.get("layout_type") in ("conclusion_sources", "conclusion") for s in slides_raw)
@@ -517,9 +525,19 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
                     "subtitle": "Asosiy xulosalar va muhokama",
                     "layout_type": "conclusion_sources",
                     "bullets": [
-                        f"«{topic}» bo'yicha asosiy tahliliy natijalar umumlashtirildi.",
-                        "Zamonaviy amaliyotga tatbiq etish istiqbollari belgilandi.",
+                        f'"{topic}" bo\'yicha asosiy tahliliy natijalar umumlashtirildi.',
+                        "Zamonaviy amaliyotga tatbiq etish istiqbollari va tavsiyalar belgilandi.",
                         "E'tiboringiz uchun rahmat! Savollar va takliflar uchun tayyormiz."
+                    ],
+                    "points": [
+                        f'"{topic}" bo\'yicha asosiy tahliliy natijalar umumlashtirildi.',
+                        "Zamonaviy amaliyotga tatbiq etish istiqbollari va tavsiyalar belgilandi.",
+                        "E'tiboringiz uchun rahmat! Savollar va takliflar uchun tayyormiz."
+                    ],
+                    "cards": [
+                        {"title": "Asosiy Xulosalar", "desc": f'"{topic}" bo\'yicha asosiy tahliliy natijalar umumlashtirildi.'},
+                        {"title": "Amaliy Tavsiyalar", "desc": "Zamonaviy amaliyotga tatbiq etish istiqbollari va tavsiyalar belgilandi."},
+                        {"title": "Savol-Javob", "desc": "E'tiboringiz uchun rahmat! Savollar va takliflar uchun tayyormiz."}
                     ],
                     "speaker_notes": "E'tiboringiz uchun katta rahmat! Mavzu yuzasidan savol va takliflaringizni berishingiz mumkin.",
                 })

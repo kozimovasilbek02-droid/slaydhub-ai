@@ -3181,7 +3181,10 @@ class PPTXTextReplacer:
                 if len(col_shapes) == 1:
                     shp = col_shapes[0]["shape"]
                     assigned_shapes.add(id(shp))
-                    combined = f"{item_head}\n{item_desc}".strip() if (item_head and item_desc) else (item_head or item_desc)
+                    if item_head and item_desc:
+                        combined = f"{item_head}: {item_desc}"
+                    else:
+                        combined = item_head or item_desc
                     cls.set_shape_text_preserving_style(shp, combined, default_font_size=16.0, slide_height_pt=sh_pt, scale_factor=scale_factor)
                 else:
                     title_box = col_shapes[0]["shape"]
@@ -3189,8 +3192,8 @@ class PPTXTextReplacer:
                     assigned_shapes.add(id(title_box))
                     assigned_shapes.add(id(desc_box))
 
-                    t_text = item_head if item_head else item_desc
-                    d_text = item_desc if item_head else ""
+                    t_text = item_head if item_head else "Tahliliy yo'nalish"
+                    d_text = item_desc if item_desc else item_head
 
                     cls.set_shape_text_preserving_style(title_box, t_text, is_card_title=True, font_size_override=19.5, slide_height_pt=sh_pt, scale_factor=scale_factor)
                     cls.set_shape_text_preserving_style(desc_box, d_text, font_size_override=15.5, slide_height_pt=sh_pt, scale_factor=scale_factor)

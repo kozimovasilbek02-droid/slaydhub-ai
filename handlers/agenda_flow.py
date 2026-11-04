@@ -905,6 +905,7 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
                         caption=caption_txt,
                         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_after),
                         parse_mode="HTML",
+                        request_timeout=60,
                     )
                     send_success = True
                     break
