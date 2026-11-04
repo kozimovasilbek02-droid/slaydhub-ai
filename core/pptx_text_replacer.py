@@ -360,18 +360,21 @@ class AdSlideFilter:
                 return True
 
         # 2. Ikonkalar to'plami (Icon Sheet / Asset Pack) tahlili:
-        # 8 dan ortiq kichik ikonka yoki 5 dan ortiq rasm bo'lib matn kam bo'lsa - bu ikonka slaydi
+        # Haqiqiy ikonka to'plami slaydlari: ko'plab kichik shakllar (>= 15) bo'lib matn deyarli yo'q (<= 3),
+        # yoki yuzlab ikonkalardan iborat bo'ladi (>= 25).
         total_shapes = len(slide.shapes)
         pic_count = sum(1 for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE)
         small_shapes = sum(
             1 for s in slide.shapes
             if (s.width and SafeShapeGeometry.to_pt(s.width) < 65.0) and (s.height and SafeShapeGeometry.to_pt(s.height) < 65.0)
         )
-        if small_shapes >= 8:
+        if small_shapes >= 15 and len(t_shapes) <= 3:
             return True
-        if pic_count >= 5 and len(t_shapes) <= 3:
+        if small_shapes >= 25:
             return True
-        if total_shapes >= 15 and len(t_shapes) <= 1:
+        if pic_count >= 6 and len(t_shapes) <= 3:
+            return True
+        if total_shapes >= 20 and len(t_shapes) <= 1:
             return True
 
         # 3. Bo'sh qurilma maketlari (Device Mockup: iPhone, iPad, Laptop bo'sh ekranlari):
