@@ -130,6 +130,13 @@ async def main():
     dp.include_router(document_router)
 
     try:
+        from aiogram.types import BotCommand
+        await bot.set_my_commands([
+            BotCommand(command="start", description="🏠 Asosiy menyu"),
+            BotCommand(command="search", description="🔍 17,250 ta shablondan qidirish"),
+            BotCommand(command="catalog", description="🗂️ Shablonlar toifalari katalogi"),
+            BotCommand(command="help", description="ℹ️ Yordam va qo'llanma"),
+        ])
         bot_user = await bot.get_me()
         print(f"[BOT] @{bot_user.username} muvaffaqiyatli ishga tushdi!")
         await dp.start_polling(bot, drop_pending_updates=True)

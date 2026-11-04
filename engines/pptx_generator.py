@@ -16,50 +16,23 @@ logger = logging.getLogger(__name__)
 
 
 def find_best_authentic_template(topic: str) -> Optional[str]:
-    """Mavzuga ko'ra haqiqiy professional shablonni tanlaydi (Render bundled + local kutubxona)."""
-    topic_l = (topic or "").lower()
+    """17,250 ta shablon ichidan AI Smart Selector orqali mavzuga eng mos haqiqiy shablonni tanlaydi."""
+    try:
+        from core.template_catalog import GLOBAL_TEMPLATE_CATALOG
+        # 1. Smart semantik qidiruv: mavzuga eng mos 3 ta shablonni tekshirish
+        top_matches = GLOBAL_TEMPLATE_CATALOG.smart_search(topic, top_k=3)
+        for cand in top_matches:
+            tpl_id = cand.get("id")
+            resolved = GLOBAL_TEMPLATE_CATALOG.resolve_template_pptx_path(tpl_id)
+            if resolved and os.path.exists(resolved):
+                logger.info(f"Smart Template Match: '{topic}' -> '{cand.get('title')}' ({resolved})")
+                return resolved
+    except Exception as e:
+        logger.debug(f"Smart template selection error: {e}")
+
+    # 2. Fallback: Bundled templates papkasi
     curr_dir = Path(__file__).resolve().parent.parent
     bundled_dir = curr_dir / "templates"
-    med_dir = Path(r"C:\Users\user\Desktop\Institut\Suniy intelekt\05_Taqdimotlar_va_Maqolalar\Medical_Presentations_English_50")
-
-    is_cardio = any(k in topic_l for k in ["yurak", "kardio", "heart", "cardio", "qon tomir", "infarkt"])
-    is_dental = any(k in topic_l for k in ["tish", "stomatolog", "dental", "teeth"])
-    is_pharma = any(k in topic_l for k in ["dori", "farmakolog", "tabletka", "kapsula", "capsule", "medication"])
-    is_tech = any(k in topic_l for k in ["dasturlash", "ai", "sun'iy", "robot", "it", "kompyuter", "3d", "texnolog"])
-    is_biz = any(k in topic_l for k in ["biznes", "marketing", "iqtisod", "reja", "startap", "moliya", "invest"])
-    is_med = any(k in topic_l for k in ["tibbiyot", "shifoxona", "salomat", "kasallik", "doktor", "bemor", "terapiya", "tibbiy"])
-
-    targets = []
-    if is_cardio:
-        targets = ["11_Humanity_Heartbeat.pptx", "07_Modern_Healthcare_Solutions.pptx"]
-    elif is_dental:
-        targets = ["16_Dental_Health_Care.pptx", "07_Modern_Healthcare_Solutions.pptx"]
-    elif is_pharma:
-        targets = ["20_Capsules_Medication_Balancing.pptx", "07_Modern_Healthcare_Solutions.pptx"]
-    elif is_tech:
-        targets = ["09_Digital_Healthcare.pptx", "3D Printing Technology PowerPoint Templates.pptx"]
-    elif is_biz:
-        targets = ["2019 Business Plan PowerPoint Templates.pptx"]
-    elif is_med:
-        targets = ["07_Modern_Healthcare_Solutions.pptx", "11_Humanity_Heartbeat.pptx"]
-    else:
-        targets = ["2019 Business Plan PowerPoint Templates.pptx", "07_Modern_Healthcare_Solutions.pptx"]
-
-    # 1. Bundled templates check (Render.com + local)
-    if bundled_dir.exists():
-        for t in targets:
-            cand = bundled_dir / t
-            if cand.exists():
-                return str(cand)
-
-    # 2. Local medical templates folder
-    if med_dir.exists():
-        for t in targets:
-            cand = med_dir / t
-            if cand.exists():
-                return str(cand)
-
-    # 3. Fallback to any pptx in bundled
     if bundled_dir.exists():
         all_bundled = list(bundled_dir.glob("*.pptx"))
         if all_bundled:

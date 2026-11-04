@@ -19,6 +19,10 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📚 Kitob Tahlili (PDF)", callback_data="menu_book_split"),
         ],
         [
+            InlineKeyboardButton(text="🗂️ 17,250 Shablonlar Katalogi", callback_data="menu_catalog"),
+            InlineKeyboardButton(text="🔍 Shablon Qidirish", callback_data="menu_search_prompt"),
+        ],
+        [
             InlineKeyboardButton(text="🌐 Slayd Tarjimon AI", callback_data="menu_translate_slide"),
             InlineKeyboardButton(text="📄 Akademik Word (OTM)", callback_data="menu_academic_word"),
         ],

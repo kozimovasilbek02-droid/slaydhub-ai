@@ -102,8 +102,10 @@ class TemplateCatalog:
     """Shablonlar katalogi va bulut yetkazib berish markazi."""
 
     def __init__(self, catalog_json_path: Optional[str] = None):
+        repo_root = Path(__file__).resolve().parent.parent
+        default_cat = repo_root / "templates_catalog.json"
         self.catalog_json_path = catalog_json_path or os.getenv(
-            "SLAYDHUB_CATALOG_PATH", "templates_catalog.json"
+            "SLAYDHUB_CATALOG_PATH", str(default_cat)
         )
         self.templates: Dict[str, Dict[str, Any]] = {}
         self._load_catalog()
@@ -166,6 +168,26 @@ class TemplateCatalog:
             # Fallback to general templates if category has no specific templates yet
             results = [t for t in self.templates.values() if t.get("category") in ("biz", "tech")]
         return results
+
+    def smart_search(
+        self, query: str, top_k: int = 6, category: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """AI semantik qidiruvi orqali 17,250 ta shablon ichidan eng moslarini qaytaradi."""
+        from core.smart_selector import SmartTemplateSelector
+        target_cat = category or self.detect_category(query)
+        return SmartTemplateSelector.search(
+            catalog=self.templates,
+            query=query,
+            top_k=top_k,
+            target_category=target_cat
+        )
+
+    def find_best_matching_template(
+        self, topic: str, category: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Mavzuga eng yuqori reyting bilan mos kelgan bitta eng zo'r shablonni qaytaradi."""
+        results = self.smart_search(topic, top_k=1, category=category)
+        return results[0] if results else None
 
     def get_template(self, tpl_id: str) -> Optional[Dict[str, Any]]:
         return self.templates.get(tpl_id)

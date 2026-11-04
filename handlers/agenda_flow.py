@@ -13,6 +13,7 @@ import tempfile
 from typing import Dict, Any, List
 
 from aiogram import Router, F
+from aiogram.filters import Command
 from aiogram.types import (
     Message,
     CallbackQuery,
@@ -55,6 +56,8 @@ router = Router(name="agenda_flow")
 
 class SlideCreationFSM(StatesGroup):
     waiting_for_topic = State()
+    waiting_for_search_query = State()
+    waiting_for_topic_with_preset_template = State()
     selecting_category = State()
     selecting_template = State()
     selecting_slide_count = State()
@@ -64,9 +67,36 @@ class SlideCreationFSM(StatesGroup):
 
 # ── 1. KLAVIATURALAR ──────────────────────────────────────────────────────────
 
+
+def get_catalog_categories_keyboard() -> InlineKeyboardMarkup:
+    """Barcha 17,250 ta shablon toifalarini ko'rsatish klaviaturasi."""
+    kb = [
+        [
+            InlineKeyboardButton(text="💼 Biznes (1,699)", callback_data="sel_cat_biz"),
+            InlineKeyboardButton(text="💻 IT & AI (2,521)", callback_data="sel_cat_tech"),
+        ],
+        [
+            InlineKeyboardButton(text="🩺 Tibbiyot (356)", callback_data="sel_cat_med"),
+            InlineKeyboardButton(text="🎓 Ta'lim (481)", callback_data="sel_cat_edu"),
+        ],
+        [
+            InlineKeyboardButton(text="🌿 Tabiat (598)", callback_data="sel_cat_nature"),
+            InlineKeyboardButton(text="🎨 Minimalist (11,595)", callback_data="sel_cat_minimal"),
+        ],
+        [
+            InlineKeyboardButton(text="🔍 Kalit so'z bilan qidirish (/search)", callback_data="menu_search_prompt"),
+        ],
+        [
+            InlineKeyboardButton(text="◀️ Asosiy menyu", callback_data="menu_home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
 def get_category_selection_keyboard(rec_cat: str) -> InlineKeyboardMarkup:
     """Toifalar menyusi (tavsiya etilgan toifa ⭐ belgisi bilan)."""
-    kb = []
+    kb = [
+        [InlineKeyboardButton(text="🎯 Mavzuga eng mos dizaynlar (AI Tavsiya)", callback_data="sel_cat_smart")]
+    ]
     cat_items = list(CATEGORIES.items())
     for i in range(0, len(cat_items), 2):
         row = []
@@ -98,12 +128,24 @@ def get_template_carousel_keyboard(
     ]
     choose_row = [
         InlineKeyboardButton(
-            text="✅ Ushbu shablonni tanlash", callback_data=f"tpl_choose_{tpl_id}"
+            text="✅ Shu shablonda slayd yaratish", callback_data=f"tpl_choose_{tpl_id}"
         )
     ]
-    back_row = [
-        InlineKeyboardButton(text="🗂️ Boshqa toifani tanlash", callback_data="agenda_change_cat")
-    ]
+    if cat_key == "search":
+        back_row = [
+            InlineKeyboardButton(text="🔍 Qayta qidirish", callback_data="menu_search_prompt"),
+            InlineKeyboardButton(text="🗂️ Katalog", callback_data="menu_catalog"),
+        ]
+    elif cat_key == "smart":
+        back_row = [
+            InlineKeyboardButton(text="🗂️ Boshqa toifani tanlash", callback_data="agenda_change_cat"),
+            InlineKeyboardButton(text="🔍 Qidirish", callback_data="menu_search_prompt"),
+        ]
+    else:
+        back_row = [
+            InlineKeyboardButton(text="🗂️ Barcha toifalar", callback_data="menu_catalog"),
+            InlineKeyboardButton(text="◀️ Asosiy menyu", callback_data="menu_home"),
+        ]
     return InlineKeyboardMarkup(inline_keyboard=[nav_row, choose_row, back_row])
 
 
@@ -155,6 +197,155 @@ def get_agenda_editor_keyboard(template_title: str) -> InlineKeyboardMarkup:
 
 # ── 2. OQIM BOSHQARUVI ────────────────────────────────────────────────────────
 
+
+# ── 1.1 KATALOG VA QIDIRUV HANDLERLARI (17,250 SHABLON) ───────────────────────
+
+@router.message(Command("catalog"))
+@router.callback_query(F.data == "menu_catalog")
+async def show_catalog_menu(event: Message | CallbackQuery, state: FSMContext):
+    """17,250 ta shablonning toifalar katalogi."""
+    txt = (
+        "🗂️ <b>SLAYDHUB ULTRA — 17,250 TA SHABLONLAR KATALOGI</b>\n\n"
+        "Barcha shablonlar professional OpenXML formatida bo'lib, haqiqiy 3D grafikalar, "
+        "vektor elementlar va yuqori sifatli HD muqovalarga ega:\n\n"
+        "💼 <b>Biznes, Startap va Moliya:</b> 1,699 ta shablon\n"
+        "💻 <b>IT, AI va Texnologiya:</b> 2,521 ta shablon\n"
+        "🩺 <b>Tibbiyot va Salomatlik:</b> 356 ta shablon\n"
+        "🎓 <b>Ta'lim, Fan va Akademik:</b> 481 ta shablon\n"
+        "🌿 <b>Tabiat, Ekologiya va Turizm:</b> 598 ta shablon\n"
+        "🎨 <b>Zamonaviy Minimalizm:</b> 11,595 ta shablon\n"
+        "───────────────────────\n"
+        "📊 <b>Jami tasdiqlangan shablonlar:</b> 17,250 ta\n\n"
+        "<i>Kerakli toifani tanlang va shablonlar galereyasini ko'ring:</i>"
+    )
+    kb = get_catalog_categories_keyboard()
+    if isinstance(event, CallbackQuery):
+        try:
+            await event.message.delete()
+        except Exception:
+            pass
+        await event.message.answer(txt, reply_markup=kb, parse_mode="HTML")
+        await event.answer()
+    else:
+        await event.answer(txt, reply_markup=kb, parse_mode="HTML")
+
+
+@router.message(Command("search"))
+@router.callback_query(F.data == "menu_search_prompt")
+async def handle_search_command(event: Message | CallbackQuery, state: FSMContext):
+    """17,250 ta shablondan semantik kalit so'z bo'yicha qidirish."""
+    query = ""
+    if isinstance(event, Message) and event.text:
+        parts = event.text.split(maxsplit=1)
+        if len(parts) > 1:
+            query = parts[1].strip()
+
+    if query:
+        await execute_search(query, event, state)
+        return
+
+    await state.set_state(SlideCreationFSM.waiting_for_search_query)
+    txt = (
+        "🔍 <b>SHABLONLAR SEMANTIK QIDIRUVI</b>\n\n"
+        "17,250 ta shablon ichidan qidirmoqchi bo'lgan soha, mavzu yoki kalit so'zni yozing:\n\n"
+        "<i>Misol: «quyosh energiyasi», «sun'iy intellekt», «kardiologiya», «marketing rejasi», «avtomobillar», «iqlim o'zgarishi»</i>"
+    )
+    kb = [
+        [InlineKeyboardButton(text="🗂️ Katalogga o'tish", callback_data="menu_catalog")],
+        [InlineKeyboardButton(text="◀️ Asosiy menyu", callback_data="menu_home")],
+    ]
+    if isinstance(event, CallbackQuery):
+        try:
+            await event.message.delete()
+        except Exception:
+            pass
+        await event.message.answer(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+        await event.answer()
+    else:
+        await event.answer(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+
+
+@router.message(SlideCreationFSM.waiting_for_search_query)
+async def process_search_query_input(message: Message, state: FSMContext):
+    """Foydalanuvchi qidiruv so'zini kiritganda qidirish."""
+    query = (message.text or "").strip()
+    if len(query) < 2:
+        await message.answer("⚠️ Iltimos, kamida 2 ta harfdan iborat kalit so'z kiriting:")
+        return
+    await execute_search(query, message, state)
+
+
+async def execute_search(query: str, event: Message | CallbackQuery, state: FSMContext):
+    """Semantik qidiruvni bajaradi va karuselni chiqaradi."""
+    smart_matches = GLOBAL_TEMPLATE_CATALOG.smart_search(query, top_k=8)
+    if not smart_matches:
+        txt = (
+            f"🔍 <b>«{html.escape(query)}»</b> bo'yicha aniq mos shablon topilmadi.\n\n"
+            f"Boshqa so'z bilan qidirib ko'ring yoki umumiy katalogga o'ting:"
+        )
+        kb = [
+            [InlineKeyboardButton(text="🔍 Qayta qidirish", callback_data="menu_search_prompt")],
+            [InlineKeyboardButton(text="🗂️ Katalogga o'tish", callback_data="menu_catalog")],
+            [InlineKeyboardButton(text="◀️ Asosiy menyu", callback_data="menu_home")],
+        ]
+        if isinstance(event, CallbackQuery):
+            await event.message.answer(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+            await event.answer()
+        else:
+            await event.answer(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+        return
+
+    smart_ids = [t["id"] for t in smart_matches]
+    await state.update_data(search_query=query, smart_ids=smart_ids)
+
+    # Karuselni ko'rsatish
+    fake_cb = event if isinstance(event, CallbackQuery) else None
+    if fake_cb:
+        await show_template_card(fake_cb, state, cat_key="search", tpl_idx=0)
+    else:
+        # Message bo'lsa, xabarga javoban kartani yuborish
+        tpl = smart_matches[0]
+        thumb_media = tpl.get("thumb_file_id")
+        kb = get_template_carousel_keyboard("search", 0, len(smart_matches), tpl["id"])
+        caption = (
+            f"🔍 <b>«{html.escape(query)}»</b> bo'yicha eng mos shablonlar (1/{len(smart_matches)}):\n\n"
+            f"🎨 <b>Shablon:</b> {html.escape(tpl['title'])}\n"
+            f"📁 <b>Toifasi:</b> {tpl.get('category', 'universal').title()}\n"
+            f"📊 <b>Mavjud slaydlar:</b> {tpl.get('total_slides', 30)} ta\n"
+            f"✨ <i>17,250 ta shablon ichidan AI semantik tahlili orqali saralandi</i>\n\n"
+            f"<i>Oldingi/keyingi tugmalari orqali ko'ring va «✅ Shu shablonda slayd yaratish» tugmasini bosing:</i>"
+        )
+        await state.set_state(SlideCreationFSM.selecting_template)
+        if thumb_media:
+            await event.answer_photo(photo=thumb_media, caption=caption, reply_markup=kb, parse_mode="HTML")
+        else:
+            await event.answer(caption, reply_markup=kb, parse_mode="HTML")
+
+
+@router.message(SlideCreationFSM.waiting_for_topic_with_preset_template)
+async def process_topic_with_preset_template(message: Message, state: FSMContext):
+    """Oldindan shablon tanlangan holatda mavzuni qabul qilish."""
+    topic = (message.text or "").strip()
+    if len(topic) < 3:
+        await message.answer("⚠️ Iltimos, to'liqroq mavzu nomini kiriting:")
+        return
+
+    data = await state.get_data()
+    tpl_title = data.get("selected_tpl_title", "Tanlangan Shablon")
+    tpl_id = data.get("selected_tpl_id", "tpl_med_heartbeat")
+
+    await state.update_data(raw_topic=topic)
+    await state.set_state(SlideCreationFSM.selecting_slide_count)
+
+    txt = (
+        f"🎯 Mavzuingiz: <b>«{html.escape(topic)}»</b>\n"
+        f"🎨 Tanlangan shablon: <b>{html.escape(tpl_title)}</b>\n\n"
+        f"📊 Taqdimotingiz <b>necha slayddan</b> iborat bo'lishini xohlaysiz?\n"
+        f"<i>Shablon avtomatik ravishda tanlangan slaydlar soniga moslab qisqartiriladi va eng kerakli maketlar saralanadi:</i>"
+    )
+    kb = get_slide_count_keyboard(tpl_id)
+    await message.answer(txt, reply_markup=kb, parse_mode="HTML")
+
 @router.callback_query(F.data == "menu_create_slide")
 async def cb_start_slide_creation(callback: CallbackQuery, state: FSMContext):
     await state.set_state(SlideCreationFSM.waiting_for_topic)
@@ -177,14 +368,18 @@ async def process_topic_input(message: Message, state: FSMContext):
 
     # Tavsiya etilgan toifani aniqlash
     rec_cat = GLOBAL_TEMPLATE_CATALOG.detect_category(topic)
-    await state.update_data(raw_topic=topic, rec_cat=rec_cat)
+
+    # 17,250 ta shablon ichidan mavzuga eng mos shablonlarni topish
+    smart_matches = GLOBAL_TEMPLATE_CATALOG.smart_search(topic, top_k=6, category=rec_cat)
+    smart_ids = [t["id"] for t in smart_matches]
+    await state.update_data(raw_topic=topic, rec_cat=rec_cat, smart_ids=smart_ids)
     await state.set_state(SlideCreationFSM.selecting_category)
 
     rec_info = CATEGORIES.get(rec_cat, CATEGORIES["minimal"])
     txt = (
         f"🎯 <b>«{html.escape(topic)}»</b> mavzusi qabul qilindi!\n\n"
         f"Tizim mavzuingizga mos toifani aniqladi: <b>{rec_info['emoji']} {rec_info['name']}</b> ⭐\n\n"
-        f"Quyidagi toifalardan birini tanlang va tayyor 1000+ shablonlar galereyasidan o'zingizga ma'qul dizaynni tanlang:"
+        f"Barcha <b>17,250 ta</b> shablonlar ichidan eng mos dizaynni tanlang yoki toifalarni ko'ring:"
     )
     await message.answer(
         txt, reply_markup=get_category_selection_keyboard(rec_cat), parse_mode="HTML"
@@ -219,20 +414,37 @@ async def show_template_card(
     callback: CallbackQuery, state: FSMContext, cat_key: str, tpl_idx: int
 ) -> None:
     """Muqova rasmi va ma'lumotlari bilan shablon kartochkasini ko'rsatadi."""
-    templates = GLOBAL_TEMPLATE_CATALOG.get_templates_by_category(cat_key)
+    data = await state.get_data()
+    if cat_key in ("smart", "search"):
+        smart_ids = data.get("smart_ids", [])
+        templates = [GLOBAL_TEMPLATE_CATALOG.get_template(tid) for tid in smart_ids if GLOBAL_TEMPLATE_CATALOG.get_template(tid)]
+        if not templates:
+            query = data.get("search_query") or data.get("raw_topic", "")
+            templates = GLOBAL_TEMPLATE_CATALOG.smart_search(query, top_k=8)
+        if cat_key == "search":
+            q_display = data.get("search_query", "Qidiruv")
+            cat_info = {"name": f"«{q_display}» bo'yicha qidiruv natijalari", "emoji": "🔍", "badge": "Qidiruv"}
+        else:
+            cat_info = {"name": "AI Tavsiya etgan eng mos dizaynlar", "emoji": "🎯", "badge": "AI Match"}
+    else:
+        templates = GLOBAL_TEMPLATE_CATALOG.get_templates_by_category(cat_key)
+        # Sifatli ko'rinish uchun muqovasi mavjud shablonlarni oldinga qo'yish
+        templates.sort(key=lambda x: 0 if x.get("thumb_file_id") else 1)
+        cat_info = CATEGORIES.get(cat_key, CATEGORIES["minimal"])
+
     if not templates:
         await callback.message.answer("Ushbu toifada hozircha shablonlar mavjud emas.")
         return
 
     curr_idx = tpl_idx % len(templates)
     tpl = templates[curr_idx]
-    cat_info = CATEGORIES.get(cat_key, CATEGORIES["minimal"])
 
+    sub_note = "<i>✨ 17,250 ta shablon ichidan mavzuingizga eng mos tanlandi</i>" if cat_key == "smart" else "<i>✨ Haqiqiy 3D grafikalar, toza vektor ikonlar va fotosuratlar</i>"
     caption = (
         f"🎨 <b>Shablon:</b> {html.escape(tpl['title'])} ({curr_idx + 1}/{len(templates)})\n"
         f"📁 <b>Toifasi:</b> {cat_info['emoji']} {cat_info['name']}\n"
         f"📊 <b>Mavjud slaydlar:</b> {tpl.get('total_slides', 30)} ta\n"
-        f"✨ <i>Haqiqiy 3D grafikalar, toza vektor ikonlar va fotosuratlar</i>\n\n"
+        f"{sub_note}\n\n"
         f"<i>Oldingi/keyingi tugmalari orqali shablonlarni ko'ring va «✅ Tanlash» tugmasini bosing:</i>"
     )
     kb = get_template_carousel_keyboard(cat_key, curr_idx, len(templates), tpl["id"])
@@ -295,9 +507,29 @@ async def cb_template_choose(callback: CallbackQuery, state: FSMContext):
     tpl = GLOBAL_TEMPLATE_CATALOG.get_template(tpl_id)
     title = tpl["title"] if tpl else "Tanlangan Shablon"
 
-    await state.update_data(selected_tpl_id=tpl_id, selected_tpl_title=title)
-    await state.set_state(SlideCreationFSM.selecting_slide_count)
+    data = await state.get_data()
+    topic = data.get("raw_topic")
 
+    await state.update_data(selected_tpl_id=tpl_id, selected_tpl_title=title)
+
+    # Agar foydalanuvchi katalog yoki qidiruvdan kelib, mavzuni hali kiritmagan bo'lsa
+    if not topic:
+        await state.set_state(SlideCreationFSM.waiting_for_topic_with_preset_template)
+        txt = (
+            f"🎯 <b>«{html.escape(title)}»</b> shabloni tanlandi!\n\n"
+            f"Endi ushbu dizaynda yaratmoqchi bo'lgan <b>mavzuingiz nomini</b> yuboring:\n"
+            f"<i>(Masalan: «Sun'iy intellekt kelajagi», «Marketing strategiyasi», «Kardiologiya tahlili»)</i>"
+        )
+        kb = [[InlineKeyboardButton(text="◀️ Boshqa shablon tanlash", callback_data="menu_catalog")]]
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+        await callback.answer()
+        return
+
+    await state.set_state(SlideCreationFSM.selecting_slide_count)
     txt = (
         f"✅ <b>«{html.escape(title)}»</b> shabloni tanlandi!\n\n"
         f"📊 Taqdimotingiz <b>necha slayddan</b> iborat bo'lishini xohlaysiz?\n"
@@ -490,11 +722,6 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
             return
 
     await callback.answer()
-    status_msg = await callback.message.edit_text(
-        "🎨 <i>Slaydlar tayyorlanmoqda (Haqiqiy shablon, aqlli qisqartirish va AI matn joylashtirish)...</i>",
-        parse_mode="HTML",
-    )
-
     data = draft["data"]
     title = data.get("title", "Taqdimot")
     agenda = data.get("agenda", [])
@@ -503,8 +730,35 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
     target_count = data.get("target_slide_count", len(agenda))
     category_id = data.get("category_id", 1463)
 
+    # 1-bosqich: Dastlabki progress xabari
+    status_msg = await callback.message.edit_text(
+        f"⏳ <b>[1/3] 🔍 Shablon tayyorlanmoqda...</b>\n\n"
+        f"<i>«{html.escape(tpl_title)}» (17,250 ta shablon ichidan) yuklanmoqda...</i>\n\n"
+        f"<code>▰▰▰▱▱▱▱▱▱▱</code> <b>33%</b>",
+        parse_mode="HTML",
+    )
+
+    async def _update_progress(step_text: str, bar: str, percent: str):
+        try:
+            await status_msg.edit_text(
+                f"{step_text}\n\n<code>{bar}</code> <b>{percent}</b>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
     async def _build_slide_job():
-        # 1. Matnlarni generatsiya qilish (Stage 2)
+        # Cloud shablon mavjudligini ta'minlash (agar lokal bo'lmasa, Telegram Cloud'dan yuklaydi)
+        resolved_pptx = await GLOBAL_TEMPLATE_CATALOG.ensure_template_pptx_available(tpl_id, bot=callback.bot)
+
+        # 2-bosqich: Gemini AI matnlarni yozishi
+        await _update_progress(
+            f"🧠 <b>[2/3] ✍️ Gemini AI slaydlar matnini yozmoqda...</b>\n\n"
+            f"<i>{target_count} ta slayd uchun professional struktura va matnlar yaratilmoqda...</i>",
+            "▰▰▰▰▰▰▱▱▱▱",
+            "66%"
+        )
+
         stage2_prompt = build_stage2_locked_expansion_prompt(
             title, locked_agenda=agenda, context_excerpt=data.get("raw_topic", "")
         )
@@ -514,8 +768,13 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
         if not slides_res or "slides" not in slides_res:
             raise RuntimeError(err or "Slayd matnlarini generatsiya qilishda xatolik")
 
-        # Cloud shablon mavjudligini ta'minlash (agar lokal bo'lmasa, Telegram Cloud'dan yuklaydi)
-        resolved_pptx = await GLOBAL_TEMPLATE_CATALOG.ensure_template_pptx_available(tpl_id, bot=callback.bot)
+        # 3-bosqich: Slaydlar formatlash va Animation Guardian
+        await _update_progress(
+            f"🎨 <b>[3/3] 🛠️ Slaydlar formatlanmoqda va tekshirilmoqda...</b>\n\n"
+            f"<i>Animation Guardian animatsiyalarni tekshirmoqda, slaydlar qisqartirilmoqda...</i>",
+            "▰▰▰▰▰▰▰▰▰▱",
+            "95%"
+        )
 
         full_spec = {
             "title": title,
@@ -532,9 +791,16 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
         os.makedirs(perm_dir, exist_ok=True)
         out_path = os.path.join(perm_dir, f"slide_{user_id}_{int(time.time() * 1000)}.pptx")
 
-        # 2. Sinxron C/XML dvigatel orqali shablonni kesish va matnni joylashtirish
+        # C/XML dvigatel orqali shablonni kesish va matnni joylashtirish
         await run_ram_heavy_sync(generate_pptx_file, full_spec, out_path)
         enforce_tmp_quota(perm_dir)
+
+        await _update_progress(
+            f"✅ <b>[100%] 🎉 Taqdimot muvaffaqiyatli tayyorlandi!</b>\n\n"
+            f"<i>Fayl yuklanmoqda...</i>",
+            "▰▰▰▰▰▰▰▰▰▰",
+            "100%"
+        )
         return full_spec, out_path
 
     # Priority 1 = Paid B2C, Priority 2 = Free Credit
