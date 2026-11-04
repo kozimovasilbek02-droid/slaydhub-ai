@@ -5,10 +5,12 @@ High-resolution, topic-relevant scientific & academic image fetcher for SlaydHub
 Searches Wikimedia Commons and open educational media sources to fetch authentic
 diagrams, illustrations, and photos matching the presentation's scientific topic.
 Caches images locally in output/image_cache/ for instant reuse.
+Enforces strict 512MB RAM & DecompressionBomb safeguards (max 1280x720, < 2.5MP).
 """
 
 import os
 import re
+import io
 import json
 import hashlib
 import logging
@@ -17,6 +19,9 @@ import urllib.parse
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from PIL import Image
+
+# 512MB RAM Himoyasi: DecompressionBomb hujumlari va gigant rasmlardan saqlanish
+Image.MAX_IMAGE_PIXELS = 10_000_000
 
 from pptx.util import Inches, Pt
 from pptx.enum.shapes import MSO_SHAPE_TYPE
@@ -28,6 +33,9 @@ logger = logging.getLogger("ImageFetcher")
 
 CACHE_DIR = config.OUTPUT_ROOT / "image_cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Tezkor in-memory kesh (bir xil qidiruvlarni qayta-qayta bajarmaslik uchun)
+_SEARCH_CACHE: Dict[str, Optional[str]] = {}
 
 # Curated English search term mappings for popular academic & technical domains
 TOPIC_KEYWORD_MAP: Dict[str, List[str]] = {
@@ -62,7 +70,6 @@ class AcademicImageFetcher:
                 terms.extend(query_list)
 
         if not terms:
-            # Clean non-alphanumeric words and use topic directly
             clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', topic).strip()
             terms.append(clean if len(clean) > 3 else "Science technology research")
 
@@ -71,22 +78,25 @@ class AcademicImageFetcher:
     @classmethod
     def search_wikimedia_image(cls, query: str) -> Optional[str]:
         """
-        Searches Wikimedia Commons for a high-resolution, public domain or CC-licensed image.
+        Searches Wikimedia Commons for a safe-sized, public domain or CC-licensed image.
         Returns the image download URL.
         """
+        if query in _SEARCH_CACHE:
+            return _SEARCH_CACHE[query]
+
         try:
             encoded_q = urllib.parse.quote(query)
             url = (
                 f"https://commons.wikimedia.org/w/api.php?action=query&generator=search"
                 f"&gsrsearch={encoded_q}&gsrnamespace=6&gsrlimit=5"
-                f"&prop=imageinfo&iiprop=url|mime|size&format=json"
+                f"&prop=imageinfo&iiprop=url|mime|size|dimensions&format=json"
             )
             req = urllib.request.Request(
                 url,
-                headers={"User-Agent": "SlaydHubAI/3.5 (academic-presentation-studio; contact: dev@slaydhub.ai)"}
+                headers={"User-Agent": "SlaydHubAI/5.2 (academic-presentation-studio; contact: dev@slaydhub.ai)"}
             )
 
-            with urllib.request.urlopen(req, timeout=6) as response:
+            with urllib.request.urlopen(req, timeout=4) as response:
                 data = json.loads(response.read().decode("utf-8"))
 
             pages = data.get("query", {}).get("pages", {})
@@ -95,41 +105,51 @@ class AcademicImageFetcher:
                 img_url = img_info.get("url", "")
                 mime = img_info.get("mime", "").lower()
                 size = img_info.get("size", 0)
+                width = img_info.get("width", 0)
+                height = img_info.get("height", 0)
 
-                # Prioritize valid JPG and PNG raster images (avoid WebM or giant files > 15MB)
+                # 512MB RAM himoyasi: Decompression Bomb rasmlarni (150MP) chetlab o'tish
+                if width * height > 2_500_000 or width > 2560 or height > 1600:
+                    logger.debug(f"Hajmi juda katta rasm o'tkazib yuborildi ({width}x{height}): {img_url}")
+                    continue
+
                 if img_url and any(mime.endswith(ext) for ext in ["jpeg", "jpg", "png"]):
-                    if 10_000 < size < 15_000_000:
+                    if 10_000 < size < 6_000_000:
+                        _SEARCH_CACHE[query] = img_url
                         return img_url
 
         except Exception as e:
             logger.debug(f"Wikimedia search error for query '{query}': {e}")
 
+        _SEARCH_CACHE[query] = None
         return None
 
     @classmethod
     def download_and_cache_image(cls, img_url: str) -> Optional[str]:
-        """Downloads the image from URL and caches it locally as a clean PNG/JPG."""
+        """Downloads image, downscales to max 1280x720, and caches as clean JPEG (<200KB)."""
         try:
             url_hash = hashlib.md5(img_url.encode("utf-8")).hexdigest()[:12]
-            ext = ".jpg" if ".png" not in img_url.lower() else ".png"
-            cache_path = CACHE_DIR / f"academic_{url_hash}{ext}"
+            cache_path = CACHE_DIR / f"academic_{url_hash}.jpg"
 
             if cache_path.exists() and cache_path.stat().st_size > 1024:
                 return str(cache_path)
 
             req = urllib.request.Request(
                 img_url,
-                headers={"User-Agent": "SlaydHubAI/3.5 (academic-presentation-studio)"}
+                headers={"User-Agent": "SlaydHubAI/5.2 (academic-presentation-studio)"}
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=6) as resp:
                 img_data = resp.read()
 
-            with open(cache_path, "wb") as f:
-                f.write(img_data)
+            if len(img_data) < 1000 or len(img_data) > 8_000_000:
+                return None
 
-            # Verify that it's a valid openable image
-            with Image.open(cache_path) as im:
-                im.verify()
+            # PIL orqali darhol 1280x720 gacha kichraytirish va RGB JPEG sifatida saqlash
+            with Image.open(io.BytesIO(img_data)) as im:
+                if im.mode in ("RGBA", "P"):
+                    im = im.convert("RGB")
+                im.thumbnail((1280, 720), Image.Resampling.LANCZOS)
+                im.save(cache_path, format="JPEG", quality=82, optimize=True)
 
             return str(cache_path)
 
@@ -163,46 +183,39 @@ class AcademicImageFetcher:
         layout_type: str = ""
     ) -> bool:
         """
-        Replaces an existing picture shape or picture placeholder, or places
-        an elegant image card in an open graphic zone on the right side of the slide.
+        Injects an academic image into an unfilled picture placeholder or dedicated graphic zone.
+        NEVER overwrites authentic template photos or graphics to preserve design fidelity.
         """
         if not image_path or not os.path.exists(image_path):
             return False
 
         try:
-            # 1. Look for existing picture shapes or AutoShapes with blipFill (<p:spPr//a:blipFill>)
-            # and replace with Smart Center-Cropping to eliminate aspect-ratio distortion
-            candidate_shapes = MediaHarmonizer.find_image_shapes(slide)
-            for shp in candidate_shapes:
-                if MediaHarmonizer.replace_image_with_file(shp, image_path):
-                    logger.info(f"MediaHarmonizer: Replaced image in '{shp.name}' with Smart Center-Crop from '{image_path}'")
-                    return True
-
-            # 2. Look for an unfilled picture placeholder
+            # 1. Faqat bo'sh qolgan rasmiy rasm joylagichlari (picture placeholder) mavjud bo'lsa to'ldiramiz
             for ph in slide.placeholders:
                 try:
                     if ph.placeholder_format.type in (6, 18):  # PICTURE or MEDIA placeholder
                         slide.shapes.add_picture(
                             image_path, ph.left, ph.top, ph.width, ph.height
                         )
-                        # Remove the old placeholder element
                         slide.shapes._spTree.remove(ph._element)
                         logger.info(f"Populated picture placeholder with '{image_path}'")
                         return True
                 except Exception:
                     pass
 
-            # 3. If no native picture slot exists, place an illustration card ONLY for layouts
-            # with visual space (avoiding full-width card grids, timelines, or title slides)
+            # 2. Agar slayd dizaynida fotosuratlar bo'lmasa va maxsus diagramma maketi bo'lsa
+            existing_images = MediaHarmonizer.find_image_shapes(slide)
+            if existing_images:
+                # Shablonning o'z fotosurati bor, uni buzmasdan saqlaymiz!
+                return False
+
             image_friendly_layouts = {
                 "theory_concept", "case_study", "diagram_anatomy", 
                 "problem_solution", "qa_discussion"
             }
             if layout_type and layout_type not in image_friendly_layouts:
-                logger.debug(f"Skipping floating picture overlay for layout '{layout_type}'")
                 return False
 
-            # Collect occupied boxes to ensure zero collision
             occupied_boxes = []
             for s in slide.shapes:
                 try:
@@ -214,8 +227,8 @@ class AcademicImageFetcher:
                 except Exception:
                     pass
 
-            req_w = 4.2 * 72.0 * scale_factor
-            req_h = 3.6 * 72.0 * scale_factor
+            req_w = 4.0 * 72.0 * scale_factor
+            req_h = 3.2 * 72.0 * scale_factor
             safe_l, safe_t = MediaHarmonizer.find_safe_image_placement(sw_pt, sh_pt, occupied_boxes, req_w, req_h)
 
             pic = slide.shapes.add_picture(
@@ -225,9 +238,8 @@ class AcademicImageFetcher:
                 Inches(req_w / 72.0),
                 Inches(req_h / 72.0)
             )
-            # Apply center crop to the new picture shape
             MediaHarmonizer.replace_image_with_file(pic, image_path)
-            logger.info(f"Added new collision-free scientific illustration '{image_path}' to slide at ({safe_l:.1f}, {safe_t:.1f})")
+            logger.info(f"Added collision-free illustration '{image_path}' at ({safe_l:.1f}, {safe_t:.1f})")
             return True
 
         except Exception as e:

@@ -10,8 +10,11 @@ SlaydHub Ultra v4.3 - Professional Template-First Presentation Flow
 import os
 import time
 import html
+import logging
 import tempfile
 from typing import Dict, Any, List
+
+logger = logging.getLogger(__name__)
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -835,10 +838,13 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
         # Priority 1 = Paid B2C, Priority 2 = Free Credit
         job_priority = 1 if used_paid_balance else 2
         try:
-            full_spec, out_path = await GLOBAL_SCHEDULER.submit(
-                priority=job_priority,
-                job_id=f"pptx_{user_id}_{int(time.time())}",
-                coro_factory=_build_slide_job,
+            full_spec, out_path = await asyncio.wait_for(
+                GLOBAL_SCHEDULER.submit(
+                    priority=job_priority,
+                    job_id=f"pptx_{user_id}_{int(time.time())}",
+                    coro_factory=_build_slide_job,
+                ),
+                timeout=95.0,  # 95s strict timeout
             )
 
             # Soff.uz va DTM Test registratsiyasi
@@ -885,16 +891,22 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
             )
             await delete_draft(user_id, "pptx")
             await state.clear()
-        except Exception as exc:
+        except (Exception, asyncio.TimeoutError) as exc:
+            is_timeout = isinstance(exc, (asyncio.TimeoutError, TimeoutError))
+            err_msg = "Slayd tayyorlash vaqti (95s) me'yordan oshdi" if is_timeout else str(exc)
+            logger.error(f"Slayd generatsiyasida xatolik (User: {user_id}): {exc}")
             if used_free_credit:
                 await refund_free_credit(user_id)
             elif used_paid_balance:
                 await refund_user_balance(user_id, slide_price)
-            await status_msg.edit_text(
-                f"❌ Slayd yaratishda yoki yuborishda xatolik: {html.escape(str(exc))}\n"
-                f"<i>Hisobingizdan mablag' yechilmadi (to'liq qaytarildi). Qayta urinib ko'ring.</i>",
-                parse_mode="HTML",
-            )
+            try:
+                await status_msg.edit_text(
+                    f"❌ <b>Slayd yaratishda xatolik yuz berdi:</b> {html.escape(err_msg)}\n\n"
+                    f"<i>Hisobingizdan mablag' yechilmadi (to'liq qaytarildi). Qayta urinib ko'ring.</i>",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
             return
         try:
             await status_msg.delete()

@@ -42,6 +42,11 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     user_id = message.from_user.id
+    try:
+        from handlers.agenda_flow import ACTIVE_BUILDS
+        ACTIVE_BUILDS.discard(user_id)
+    except Exception:
+        pass
     ref_id = None
 
     args = (message.text or "").split()
