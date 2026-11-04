@@ -3290,6 +3290,11 @@ class TemplateDeckAssembler:
                         logger.warning(f"Failed to drop excess slide {del_idx}: {e}")
             # Final sweep of entire customized presentation
             DeepWatermarkPurger.purge_presentation_watermarks(prs)
+            for s in prs.slides:
+                try:
+                    AnimationGuardian.purge_zombie_animations(s)
+                except Exception as e_anim:
+                    logger.debug(f"Final cross-deck AnimationGuardian sweep error: {e_anim}")
             prs.save(output_path)
             logger.info(f"Successfully assembled and customized multi-deck PPTX at {output_path}")
             return output_path

@@ -885,10 +885,6 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
             )
             await delete_draft(user_id, "pptx")
             await state.clear()
-            try:
-                await status_msg.delete()
-            except Exception:
-                pass
         except Exception as exc:
             if used_free_credit:
                 await refund_free_credit(user_id)
@@ -900,5 +896,9 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
                 parse_mode="HTML",
             )
             return
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
     finally:
         ACTIVE_BUILDS.discard(user_id)
