@@ -65,7 +65,14 @@ class SplicerGuardian:
                         if source_rel.is_external:
                             new_rId = target_part.relate_to(source_rel.target_ref, source_rel.reltype, is_external=True)
                         else:
-                            new_rId = target_part.relate_to(source_rel.target_part, source_rel.reltype, is_external=False)
+                            tgt_part = source_rel.target_part
+                            if hasattr(tgt_part, 'blob') and hasattr(target_part, 'package') and hasattr(target_part.package, 'get_or_add_image_part'):
+                                try:
+                                    import io
+                                    tgt_part = target_part.package.get_or_add_image_part(io.BytesIO(tgt_part.blob))
+                                except Exception:
+                                    pass
+                            new_rId = target_part.relate_to(tgt_part, source_rel.reltype, is_external=False)
 
                         rel_map[rid] = new_rId
                         elem.set(attr, new_rId)

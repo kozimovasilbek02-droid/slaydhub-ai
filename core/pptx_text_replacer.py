@@ -1,3 +1,4 @@
+from pathlib import Path
 # -*- coding: utf-8 -*-
 """
 Semantic In-Place PPTX Text Replacer & Template Deck Assembler (High-Legibility, Anti-Ad & Zero-Collision Engine)
@@ -3379,24 +3380,63 @@ class TemplateDeckAssembler:
                     best_l = l
             return best_l
 
+        # Cross-Deck Smart Splicer: Agar tanlangan shablon 1 betlik bo'lsa yoki
+        # slaydlar soni kam bo'lsa, 17,000+ bazadan mavzu rejasiga mos boy betlarni ulaymiz!
+        from core.slide_splicer import HarmonizedSlideCloner, ThemeColorExtractor, get_cleanest_blank_layout, CrossDeckSlideDonor
+        palette = ThemeColorExtractor.extract_palette(prs.slides[0]) if len(prs.slides) > 0 else {}
+        blank_layout = get_cleanest_blank_layout(prs)
+        used_donors: Set[str] = set()
+
         non_ad_count = sum(1 for m in template_slides_meta if not m["is_ad"])
         while non_ad_count < len(slides_data):
-            best_layout = get_best_content_layout(prs)
-            prs.slides.add_slide(best_layout)
-            t_shapes = [s for s in prs.slides[-1].shapes if s.has_text_frame and s.text_frame.text.strip()]
-            template_slides_meta.append({
-                "index": len(prs.slides) - 1,
-                "layout_type": "cards_grid",
-                "is_ad": False,
-                "text_count": len(t_shapes),
-                "has_comparison": False,
-                "has_timeline": False,
-                "has_step": False,
-                "has_agenda": False,
-                "has_credits": False,
-                "has_stats": False,
-                "has_four_option": False
-            })
+            req_atype = slides_data[non_ad_count].get("layout_type", "cards_grid")
+            donor_res = CrossDeckSlideDonor.get_donor_slide(req_atype, used_donors)
+            if donor_res:
+                donor_slide, d_path, d_idx = donor_res
+                new_slide = prs.slides.add_slide(blank_layout)
+                HarmonizedSlideCloner.clone_slide_to_target(donor_slide, new_slide, theme_palette=palette)
+
+                t_shapes = [s for s in new_slide.shapes if s.has_text_frame and s.text_frame.text.strip()]
+                all_text = " ".join([s.text_frame.text.lower() for s in t_shapes])
+                has_agenda = any(k in all_text for k in ["table of contents", "agenda", "contents", "index"])
+                has_step = any(k in all_text for k in ["step 01", "step 1", "01.", "steps", "process"])
+                has_timeline = any(k in all_text for k in ["timeline", "2026", "2027", "roadmap", "schedule"])
+                has_comparison = any(k in all_text for k in ["comparison", "vs", "versus"])
+                has_stats = any(k in all_text for k in ["%", "stats", "analytics", "chart", "kpi", "metrics"])
+                has_credits = any(k in all_text for k in ["thank you", "thanks", "conclusion", "contact", "qa"])
+                has_four_option = len(t_shapes) in [8, 9, 10]
+
+                template_slides_meta.append({
+                    "index": len(prs.slides) - 1,
+                    "layout_type": req_atype,
+                    "is_ad": False,
+                    "text_count": len(t_shapes),
+                    "has_comparison": has_comparison,
+                    "has_timeline": has_timeline,
+                    "has_step": has_step,
+                    "has_agenda": has_agenda,
+                    "has_credits": has_credits,
+                    "has_stats": has_stats,
+                    "has_four_option": has_four_option
+                })
+                logger.info(f"CrossDeckDonor: Spliced '{req_atype}' slide from {Path(d_path).name}#{d_idx} harmonized with cover theme")
+            else:
+                best_layout = get_best_content_layout(prs)
+                prs.slides.add_slide(best_layout)
+                t_shapes = [s for s in prs.slides[-1].shapes if s.has_text_frame and s.text_frame.text.strip()]
+                template_slides_meta.append({
+                    "index": len(prs.slides) - 1,
+                    "layout_type": "cards_grid",
+                    "is_ad": False,
+                    "text_count": len(t_shapes),
+                    "has_comparison": False,
+                    "has_timeline": False,
+                    "has_step": False,
+                    "has_agenda": False,
+                    "has_credits": False,
+                    "has_stats": False,
+                    "has_four_option": False
+                })
             non_ad_count += 1
 
         # 2. Select best distinct template slide for each requested slide (Strictly ignoring ad slides!)

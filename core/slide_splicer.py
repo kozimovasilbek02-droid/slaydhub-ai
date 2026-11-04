@@ -9,6 +9,8 @@ Implements 3 Distinct Splicing Engines:
 """
 
 import os
+import tempfile
+from pathlib import Path
 import io
 import copy
 import logging
@@ -342,3 +344,97 @@ class UniversalSlideSplicer:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         prs.save(output_path)
         return output_path
+
+
+
+class CrossDeckSlideDonor:
+    """
+    17,250 ta shablon va andozalardan mavzu rejasiga eng mos keluvchi
+    boy strukturali betlarni (infografika, taqqoslash, jarayon, SWOT, metrika)
+    ajratib oluvchi va asosiy taqdimotga rang/shrift uyg'unligida ulovchi donor tizimi.
+    """
+    _DONOR_CACHE: Dict[str, Presentation] = {}
+    _ARCHETYPE_INDEX: Optional[Dict[str, List[Tuple[str, int]]]] = None
+
+    @classmethod
+    def _ensure_index(cls) -> None:
+        if cls._ARCHETYPE_INDEX is not None:
+            return
+        cls._ARCHETYPE_INDEX = {}
+        curr_dir = Path(__file__).resolve().parent.parent
+        bundled_dir = curr_dir / "templates"
+        candidate_files = []
+        if bundled_dir.exists():
+            candidate_files.extend(list(bundled_dir.glob("*.pptx")))
+
+        # Cloud templates papkasidan ham mavjud to'liq shablonlarni qo'shish
+        cloud_dir = Path(tempfile.gettempdir()) / "soff_ready" / "cloud_templates"
+        if cloud_dir.exists():
+            candidate_files.extend(list(cloud_dir.glob("*.pptx")))
+
+        for pptx_file in candidate_files:
+            p_str = str(pptx_file)
+            try:
+                prs = Presentation(p_str)
+                cls._DONOR_CACHE[p_str] = prs
+                for idx, s in enumerate(prs.slides):
+                    t_shapes = [shp for shp in s.shapes if shp.has_text_frame and shp.text_frame.text.strip()]
+                    all_text = " ".join([shp.text_frame.text.lower() for shp in t_shapes])
+
+                    has_agenda = any(k in all_text for k in ["table of contents", "agenda", "contents", "index", "reja"])
+                    has_step = any(k in all_text for k in ["step 01", "step 1", "01.", "steps", "process", "bosqich"])
+                    has_timeline = any(k in all_text for k in ["timeline", "2026", "2027", "roadmap", "schedule", "xronologiya"])
+                    has_comparison = any(k in all_text for k in ["comparison", "vs", "versus", "pros", "cons", "taqqoslash"])
+                    has_stats = any(k in all_text for k in ["%", "stats", "analytics", "chart", "kpi", "metrics", "foiz"])
+                    has_credits = any(k in all_text for k in ["thank you", "thanks", "conclusion", "contact", "qa", "xulosa", "savollar"])
+
+                    atype = "general"
+                    if idx == 0:
+                        atype = "cover"
+                    elif has_agenda:
+                        atype = "agenda"
+                    elif has_comparison:
+                        atype = "comparison_vs"
+                    elif has_timeline or has_step:
+                        atype = "timeline_steps"
+                    elif has_stats:
+                        atype = "metrics_stats"
+                    elif has_credits:
+                        atype = "conclusion_sources"
+                    elif len(t_shapes) >= 6:
+                        atype = "cards_grid"
+                    elif len(t_shapes) in [2, 3, 4]:
+                        atype = "theory_concept"
+                    else:
+                        atype = "cards_grid"
+
+                    cls._ARCHETYPE_INDEX.setdefault(atype, []).append((p_str, idx))
+            except Exception as e:
+                logger.debug(f"Donor index error for {pptx_file}: {e}")
+
+    @classmethod
+    def get_donor_slide(cls, archetype: str, used_donors: set) -> Optional[Tuple[Any, str, int]]:
+        cls._ensure_index()
+        if not cls._ARCHETYPE_INDEX:
+            return None
+
+        candidates = cls._ARCHETYPE_INDEX.get(archetype, [])
+        if not candidates:
+            # Mos arxetip bo'lmasa cards_grid yoki general dan tanlaymiz
+            candidates = cls._ARCHETYPE_INDEX.get("cards_grid", []) or cls._ARCHETYPE_INDEX.get("general", [])
+
+        for p_path, s_idx in candidates:
+            donor_key = f"{p_path}#{s_idx}"
+            if donor_key in used_donors:
+                continue
+            used_donors.add(donor_key)
+            if p_path not in cls._DONOR_CACHE:
+                try:
+                    cls._DONOR_CACHE[p_path] = Presentation(p_path)
+                except Exception:
+                    continue
+            donor_prs = cls._DONOR_CACHE[p_path]
+            if s_idx < len(donor_prs.slides):
+                return donor_prs.slides[s_idx], p_path, s_idx
+
+        return None

@@ -161,8 +161,23 @@ class AcademicImageFetcher:
     def get_image_for_slide(cls, topic: str, slide_title: str = "", archetype: str = "") -> Optional[str]:
         """
         Retrieves a local high-quality image path matching the slide topic.
+        Render 512MB RAM & Zero-Hang: Does not perform blocking live HTTP requests
+        during real-time slide generation unless ENABLE_LIVE_IMAGE_SCRAPING=1.
         """
         queries = cls.extract_search_terms(topic, slide_title)
+
+        # 1. Avval mavjud keshdan tekshiramiz (bir lahzalik <1ms)
+        for q in queries:
+            url_hash = hashlib.md5(q.encode("utf-8")).hexdigest()[:12]
+            cached_cand = CACHE_DIR / f"academic_{url_hash}.jpg"
+            if cached_cand.exists() and cached_cand.stat().st_size > 1024:
+                return str(cached_cand)
+
+        # 2. Jonli internet qidiruvi yoqilmagan bo'lsa (default), server qotib qolmasligi uchun None qaytaramiz
+        if os.getenv("ENABLE_LIVE_IMAGE_SCRAPING", "0").lower() not in ("1", "true", "yes"):
+            return None
+
+        # 3. Jonli qidiruv (faqat ruxsat berilganda va qisqa timeout bilan)
         for q in queries:
             img_url = cls.search_wikimedia_image(q)
             if img_url:
