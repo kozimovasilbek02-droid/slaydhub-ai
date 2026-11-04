@@ -129,6 +129,15 @@ async def main():
     dp.include_router(agenda_flow_router)
     dp.include_router(document_router)
 
+    @dp.error()
+    async def global_error_handler(event):
+        err = getattr(event, "exception", None)
+        err_str = str(err).lower() if err else ""
+        if "query is too old" in err_str:
+            return True
+        print(f"[ERROR] {err}")
+        return False
+
     try:
         from aiogram.types import BotCommand
         await bot.set_my_commands([
