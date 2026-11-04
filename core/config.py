@@ -53,7 +53,7 @@ class AppConfig:
                 str(self.BASE_DIR / "core" / "academic_template_index_native.json")
             )
         )
-        self.FALLBACK_INDEX_PATH: Path = self.BASE_DIR / "core" / "academic_template_index.json"
+        self.FALLBACK_INDEX_PATH: Path = self.BASE_DIR / "core" / "academic_template_index_native.json"
 
         # Blacklisted low-quality template folders
         self.BLACKLISTED_FOLDERS: List[str] = [
