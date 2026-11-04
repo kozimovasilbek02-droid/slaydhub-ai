@@ -1,3 +1,4 @@
+from core.template_catalog import GLOBAL_TEMPLATE_CATALOG
 # -*- coding: utf-8 -*-
 import os
 import time
@@ -376,6 +377,14 @@ async def handle_document_upload(message: Message):
         )
 
         for idx, spec in enumerate(specs, 1):
+            deck_topic = spec.get("title") or spec.get("topic") or safe_orig_name
+            resolved_pptx, donor_pptx_paths = await GLOBAL_TEMPLATE_CATALOG.ensure_multi_template_pool_available(
+                topic=deck_topic, primary_tpl_id=spec.get("template_id"), bot=message.bot, max_donors=2
+            )
+            if resolved_pptx:
+                spec["resolved_pptx_path"] = resolved_pptx
+            if donor_pptx_paths:
+                spec["donor_pptx_paths"] = donor_pptx_paths
             out_deck_path = os.path.join(perm_dir, f"Deck_{idx}_{user_id}_{int(time.time()*1000)}.pptx")
             await run_ram_heavy_sync(generate_pptx_file, spec, out_deck_path)
 

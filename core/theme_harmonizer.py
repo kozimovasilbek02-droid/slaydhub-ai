@@ -110,9 +110,12 @@ class ThemeHarmonizer:
         if w_pt < cls.MIN_SHAPE_DIMENSION_PT or h_pt < cls.MIN_SHAPE_DIMENSION_PT:
             return False
 
-        # 3. Reject full-slide or large background containers (> 30% area or > 80% span)
+        # 3. Reject card background containers (> 4% of slide area or card-sized rectangles > 120x65pt)
         shape_area = w_pt * h_pt
-        if (shape_area / slide_area) > cls.MAX_ACCENT_AREA_FRACTION:
+        if (shape_area / slide_area) > 0.04:
+            return False
+
+        if w_pt > 120.0 and h_pt > 65.0:
             return False
 
         if (w_pt / slide_width_pt) > 0.75 and (h_pt / slide_height_pt) > 0.40:
@@ -134,6 +137,19 @@ class ThemeHarmonizer:
         fills = spPr[0].xpath('./a:solidFill | ./a:gradFill')
         if not fills:
             return False
+
+        # Never recolor light neutral card backgrounds (luminance > 195, e.g. #F1F5F9, #F8FAFC, #E0F2FE, #FFFFFF)
+        srgb_vals = spPr[0].xpath('./a:solidFill/a:srgbClr/@val')
+        if srgb_vals:
+            hx = srgb_vals[0].strip().lstrip("#")
+            if len(hx) == 6:
+                try:
+                    r, g, b = int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16)
+                    lum = 0.299 * r + 0.587 * g + 0.114 * b
+                    if lum > 195.0:
+                        return False
+                except Exception:
+                    pass
 
         return True
 

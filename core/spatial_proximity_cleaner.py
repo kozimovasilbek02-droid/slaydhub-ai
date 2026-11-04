@@ -2,17 +2,6 @@
 """
 core/spatial_proximity_cleaner.py
 Spatial Proximity Pruner & Orphaned Vector Cleaner for SlaydHub AI.
-
-Eliminates:
-1. Orphaned vector badges, circles, and icons left over after unassigned cards are pruned.
-2. Dead connector lines and arrows pointing into empty canvas zones where cards once stood.
-3. Empty or non-content vector groups (MSO_SHAPE_TYPE.GROUP) after card text is deleted.
-
-Preserves (SafeSize Threshold & Background Guard):
-- Large backdrop panels, cards, and diagonal ribbons (> 25% canvas area).
-- Header and footer design banners.
-- Vector shapes coupled to currently assigned user cards.
-- Media content (pictures, charts, tables).
 """
 
 import math
@@ -44,7 +33,6 @@ class SpatialProximityCleaner:
 
     @staticmethod
     def bbox_distance(bbox: Tuple[float, float, float, float], point: Tuple[float, float]) -> float:
-        """Calculates Euclidean distance from a 2D point to an axis-aligned bounding box."""
         l, t, r, b = bbox
         x, y = point
         dx = max(0.0, l - x, x - r)
@@ -53,7 +41,6 @@ class SpatialProximityCleaner:
 
     @staticmethod
     def bbox_to_bbox_distance(bb1: Tuple[float, float, float, float], bb2: Tuple[float, float, float, float]) -> float:
-        """Calculates the shortest distance between two axis-aligned bounding boxes (0.0 if intersecting)."""
         l1, t1, r1, b1 = bb1
         l2, t2, r2, b2 = bb2
         dx = max(0.0, l1 - r2, l2 - r1)
@@ -62,7 +49,6 @@ class SpatialProximityCleaner:
 
     @staticmethod
     def bbox_overlap(bb1: Tuple[float, float, float, float], bb2: Tuple[float, float, float, float]) -> bool:
-        """Returns True if two bounding boxes intersect."""
         l1, t1, r1, b1 = bb1
         l2, t2, r2, b2 = bb2
         return not (r1 < l2 or l1 > r2 or b1 < t2 or t1 > b2)
@@ -71,15 +57,10 @@ class SpatialProximityCleaner:
     def is_safe_background_shape(
         cls,
         shape: BaseShape,
-        sw_pt: float = 720.0,
-        sh_pt: float = 405.0
+        sw_pt: float = 960.0,
+        sh_pt: float = 540.0,
     ) -> bool:
-        """
-        Guarantees that major template backdrops, full-slide cards,
-        and header/footer branding banners are NEVER pruned as artifacts.
-        """
-        # Exclude legitimate rich content
-        if shape.shape_type in (MSO_SHAPE_TYPE.TABLE, MSO_SHAPE_TYPE.CHART):
+        if shape.shape_type in (MSO_SHAPE_TYPE.TABLE, MSO_SHAPE_TYPE.CHART, MSO_SHAPE_TYPE.PICTURE):
             return True
 
         l, t, r, b = cls.get_bbox(shape)
@@ -88,64 +69,48 @@ class SpatialProximityCleaner:
         area = w * h
         slide_area = max(1.0, sw_pt * sh_pt)
 
-        # 1. Major design backdrop (> 25% of slide area)
-        if (area / slide_area) >= 0.25:
+        if (area / slide_area) >= 0.20:
             return True
-
-        # 2. Header banner (top <= 18% slide height and spans > 50% width)
-        if t <= (sh_pt * 0.18) and w >= (sw_pt * 0.50):
+        if t <= (sh_pt * 0.18) and w >= (sw_pt * 0.45):
             return True
-
-        # 3. Bottom decorative wave / footer band (top >= 78% slide height and spans > 50% width)
-        if t >= (sh_pt * 0.78) and w >= (sw_pt * 0.50):
+        if t >= (sh_pt * 0.78) and w >= (sw_pt * 0.45):
             return True
-
-        # 4. Long horizontal divider line spanning whole slide
-        if h <= 4.0 and w >= (sw_pt * 0.70):
+        if h <= 6.0 and w >= (sw_pt * 0.65):
             return True
 
         return False
 
     @classmethod
-    def is_decorative_artifact(cls, shape: BaseShape) -> bool:
-        """
-        Determines if a shape is a decorative vector artifact (badge, icon, circle, arrow, connector).
-        """
-        # Groups are processed separately
-        if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+    def is_decorative_artifact(cls, shape: BaseShape, scale_factor: float = 1.0) -> bool:
+        if shape.shape_type in (MSO_SHAPE_TYPE.GROUP, MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.TABLE, MSO_SHAPE_TYPE.CHART):
             return False
 
-        # If it has a text frame with substantive content (> 6 chars), it is NOT a small decorative artifact
         if shape.has_text_frame:
             txt = shape.text_frame.text.strip()
-            if len(txt) > 6:
+            if len(txt) > 4:
                 return False
 
         l, t, r, b = cls.get_bbox(shape)
         w = r - l
         h = b - t
-
         s_name = getattr(shape, "name", "").lower()
 
-        # Connectors, arrows, chevrons, and lines
         is_connector_type = (
-            shape.shape_type == MSO_SHAPE_TYPE.LINE or
-            any(k in s_name for k in ["arrow", "chevron", "line", "connector", "flecha", "linea", "vector"]) or
-            (w <= 8.0 and h <= 80.0) or
-            (h <= 8.0 and w <= 80.0)
+            shape.shape_type == MSO_SHAPE_TYPE.LINE
+            or any(k in s_name for k in ["arrow", "chevron", "line", "connector", "flecha", "linea"])
+            or (w <= 8.0 * scale_factor and h <= 80.0 * scale_factor)
+            or (h <= 8.0 * scale_factor and w <= 80.0 * scale_factor)
         )
         if is_connector_type:
             return True
 
-        # Small badges, step circles, icons, pins (w <= 140 and h <= 140)
-        if w <= 140.0 and h <= 140.0:
+        if w <= 95.0 * scale_factor and h <= 95.0 * scale_factor:
             return True
 
         return False
 
     @staticmethod
     def prune_shape(shape: BaseShape) -> bool:
-        """Physically removes a shape element from its parent XML tree."""
         try:
             sp_elem = getattr(shape, "_element", None)
             if sp_elem is not None:
@@ -158,26 +123,60 @@ class SpatialProximityCleaner:
         return False
 
     @classmethod
+    def _group_has_assigned_or_artwork_recursive(cls, grp, assigned_ids: Set[int]) -> bool:
+        """
+        Recursively checks if a group or any of its nested sub-groups contains:
+        - an assigned shape (id in assigned_ids)
+        - non-empty substantive text (> 4 chars)
+        - a picture, chart, or table
+        - a multi-element vector illustration (>= 4 non-text vector shapes)
+        """
+        if id(grp) in assigned_ids:
+            return True
+        vector_count = 0
+        has_any_text_frame = False
+        try:
+            for child in grp.shapes:
+                if id(child) in assigned_ids:
+                    return True
+                if child.shape_type == MSO_SHAPE_TYPE.GROUP:
+                    if cls._group_has_assigned_or_artwork_recursive(child, assigned_ids):
+                        return True
+                elif child.shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.CHART, MSO_SHAPE_TYPE.TABLE):
+                    return True
+                elif child.has_text_frame and child.text_frame.text.strip():
+                    has_any_text_frame = True
+                    if len(child.text_frame.text.strip()) > 4:
+                        return True
+                elif child.shape_type == MSO_SHAPE_TYPE.TEXT_BOX:
+                    has_any_text_frame = True
+                else:
+                    vector_count += 1
+        except Exception:
+            return True
+
+        # Any group with >= 2 non-text vector shapes is a vector illustration / icon / graphic -> preserve!
+        if vector_count >= 2:
+            return True
+        return False
+
+    @classmethod
     def prune_orphaned_artifacts(
         cls,
         slide: Any,
         pruned_bboxes: List[Tuple[float, float, float, float]],
         assigned_bboxes: List[Tuple[float, float, float, float]],
         assigned_shape_ids: Optional[Set[int]] = None,
-        sw_pt: float = 720.0,
-        sh_pt: float = 405.0
+        sw_pt: float = 960.0,
+        sh_pt: float = 540.0,
     ) -> int:
-        """
-        Iterates over slide shapes and eliminates orphaned vector badges and connector lines
-        whose spatial proximity is strongly coupled to unassigned/pruned cards.
-        """
         if not pruned_bboxes:
             return 0
 
         assigned_ids = assigned_shape_ids or set()
         pruned_count = 0
+        scale_factor = max(1.0, sh_pt / 540.0)
 
-        # Snapshot current shapes
         try:
             shapes_list = list(slide.shapes)
         except Exception:
@@ -190,60 +189,26 @@ class SpatialProximityCleaner:
             if cls.is_safe_background_shape(s, sw_pt, sh_pt):
                 continue
 
-            # 1. Handle Groups: Detonate empty groups with no assigned content
+            # 1. Handle Groups safely (recursing into nested sub-groups and protecting artwork)
             if s.shape_type == MSO_SHAPE_TYPE.GROUP:
-                has_assigned_child = False
-                try:
-                    for child in s.shapes:
-                        if id(child) in assigned_ids:
-                            has_assigned_child = True
-                            break
-                        if child.has_text_frame and len(child.text_frame.text.strip()) > 6:
-                            has_assigned_child = True
-                            break
-                except Exception:
-                    pass
-
-                if not has_assigned_child:
-                    g_bb = cls.get_bbox(s)
-                    min_p_dist = min(cls.bbox_to_bbox_distance(g_bb, p_bb) for p_bb in pruned_bboxes)
-                    if min_p_dist <= 60.0:
-                        if cls.prune_shape(s):
-                            pruned_count += 1
-                            logger.info(f"Detonated orphaned group (id={id(s)}) near pruned card.")
-                            continue
-
-            # 2. Handle Standalone Decorative Artifacts
-            if cls.is_decorative_artifact(s):
-                s_bb = cls.get_bbox(s)
-
-                # Distance to nearest pruned card bounding box
-                min_pruned_dist = min(cls.bbox_to_bbox_distance(s_bb, p_bb) for p_bb in pruned_bboxes)
-
-                # Distance to nearest assigned card bounding box
-                min_assigned_dist = float("inf")
-                if assigned_bboxes:
-                    min_assigned_dist = min(cls.bbox_to_bbox_distance(s_bb, a_bb) for a_bb in assigned_bboxes)
-
-                is_coupled_to_pruned = False
-                s_name = getattr(s, "name", "").lower()
-                is_connector = (
-                    getattr(s, "shape_type", None) == MSO_SHAPE_TYPE.LINE or
-                    any(k in s_name for k in ["arrow", "chevron", "line", "connector"])
-                )
-
-                if is_connector:
-                    # A connector is orphaned if it touches or connects to a pruned card (within 45pt)
-                    if min_pruned_dist <= 45.0:
-                        is_coupled_to_pruned = True
-                else:
-                    # Badges / Circles / Icons: Must be within 60pt of pruned card and closer to pruned than assigned
-                    if min_pruned_dist <= 60.0 and min_pruned_dist < min_assigned_dist:
-                        is_coupled_to_pruned = True
-
-                if is_coupled_to_pruned:
+                if cls._group_has_assigned_or_artwork_recursive(s, assigned_ids):
+                    continue
+                g_bb = cls.get_bbox(s)
+                min_p_dist = min(cls.bbox_to_bbox_distance(g_bb, p_bb) for p_bb in pruned_bboxes)
+                min_a_dist = min((cls.bbox_to_bbox_distance(g_bb, a_bb) for a_bb in assigned_bboxes), default=float("inf"))
+                if min_p_dist <= 35.0 * scale_factor and min_p_dist < min_a_dist:
                     if cls.prune_shape(s):
                         pruned_count += 1
-                        logger.info(f"Pruned orphaned vector artifact: {s.name} (dist_to_pruned={min_pruned_dist:.1f}pt)")
+                        continue
+
+            # 2. Handle Standalone Decorative Artifacts
+            if cls.is_decorative_artifact(s, scale_factor=scale_factor):
+                s_bb = cls.get_bbox(s)
+                min_pruned_dist = min(cls.bbox_to_bbox_distance(s_bb, p_bb) for p_bb in pruned_bboxes)
+                min_assigned_dist = min((cls.bbox_to_bbox_distance(s_bb, a_bb) for a_bb in assigned_bboxes), default=float("inf"))
+
+                if min_pruned_dist <= 30.0 * scale_factor and (min_pruned_dist * 1.5) < min_assigned_dist:
+                    if cls.prune_shape(s):
+                        pruned_count += 1
 
         return pruned_count

@@ -780,8 +780,10 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
                 pass
 
         async def _build_slide_job():
-            # Cloud shablon mavjudligini ta'minlash (agar lokal bo'lmasa, Telegram Cloud'dan yuklaydi)
-            resolved_pptx = await GLOBAL_TEMPLATE_CATALOG.ensure_template_pptx_available(tpl_id, bot=callback.bot)
+            # Cloud shablon va qo'shimcha donor shablonlarni (17,250 Telegram Vault'dan) yuklab olish
+            resolved_pptx, donor_pptx_paths = await GLOBAL_TEMPLATE_CATALOG.ensure_multi_template_pool_available(
+                topic=title, primary_tpl_id=tpl_id, bot=callback.bot, max_donors=3
+            )
 
             # 2-bosqich: Gemini AI matnlarni yozishi
             await _update_progress(
@@ -813,6 +815,7 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
                 "topic": title,
                 "template_id": tpl_id,
                 "resolved_pptx_path": resolved_pptx,
+                "donor_pptx_paths": donor_pptx_paths,
                 "target_slide_count": target_count,
                 "slides": slides_res.get("slides", []),
                 "description": slides_res.get("description", ""),
@@ -946,6 +949,7 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
                         chat_id=user_id,
                         text=f"❌ <b>Slayd yaratishda xatolik:</b> {html.escape(err_msg)}\n\n<i>Hisobingiz saqlandi.</i>",
                         parse_mode="HTML",
+                        request_timeout=60,
                     )
                 except Exception:
                     pass

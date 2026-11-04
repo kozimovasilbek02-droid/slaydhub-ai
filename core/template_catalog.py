@@ -213,22 +213,40 @@ class TemplateCatalog:
     def resolve_template_pptx_path(self, tpl_id: str) -> Optional[str]:
         """
         Shablonning lokal PPTX fayl yo'lini topadi.
-        Render (templates/ papkasi) yoki lokal mashina diskidan qidiradi.
+        1. Telegram Cloud'dan yuklab olingan kesh (/tmp/soff_ready/cloud_templates/{tpl_id}.pptx)
+        2. downloaded_templates/ papkasi
+        3. templates/ papkasi yoki local_path
         """
+        if not tpl_id:
+            return None
+
+        # 0. Telegram Cloud (17,250 SlaydHub Templates Vault) dan yuklab olingan keshni tekshirish
+        cloud_cached = Path(tempfile.gettempdir()) / "soff_ready" / "cloud_templates" / f"{tpl_id}.pptx"
+        if cloud_cached.exists() and cloud_cached.stat().st_size > 5000:
+            return str(cloud_cached)
+
+        curr_dir = Path(__file__).resolve().parent.parent
+        dl_cached = curr_dir / "downloaded_templates" / f"{tpl_id}.pptx"
+        if dl_cached.exists() and dl_cached.stat().st_size > 5000:
+            return str(dl_cached)
+
         tpl = self.get_template(tpl_id)
         if not tpl:
             return None
 
         # 1. To'g'ridan-to'g'ri ko'rsatilgan local_path
-        if "local_path" in tpl and os.path.exists(tpl["local_path"]):
+        if "local_path" in tpl and tpl["local_path"] and os.path.exists(tpl["local_path"]):
             return tpl["local_path"]
 
         filename = tpl.get("filename", "")
         if not filename:
             return None
 
+        dl_by_name = curr_dir / "downloaded_templates" / filename
+        if dl_by_name.exists() and dl_by_name.stat().st_size > 5000:
+            return str(dl_by_name)
+
         # 2. telegram_bot/templates papkasi (Render va lokalda)
-        curr_dir = Path(__file__).resolve().parent.parent
         bundled = curr_dir / "templates" / filename
         if bundled.exists():
             return str(bundled)
@@ -290,6 +308,52 @@ class TemplateCatalog:
                         pass
 
         return None
+
+    async def ensure_multi_template_pool_available(
+        self,
+        topic: str,
+        primary_tpl_id: Optional[str] = None,
+        bot=None,
+        max_donors: int = 3
+    ) -> tuple[Optional[str], List[str]]:
+        """
+        17,250+ Telegram kanal (SlaydHub Templates Vault) shablonlaridan:
+        1. Asosiy tanlangan shablonni (primary_tpl_id) yuklab oladi.
+        2. Agar asosiy shablonda slaydlar soni kam bo'lsa (masalan 1-6 betlik infografika bo'lsa),
+           mavzuga mos yana 2-3 ta haqiqiy shablonni Telegram kanaldan yuklab beradi,
+           shunda dvijok bir nechta haqiqiy taqdimot betlarini birlashtirib (splice) to'laqonli taqdimot yig'adi.
+        """
+        matches = self.smart_search(topic, top_k=max_donors + 4)
+        candidate_ids: List[str] = []
+        if primary_tpl_id:
+            candidate_ids.append(primary_tpl_id)
+        for m in matches:
+            mid = m.get("id")
+            if mid and mid not in candidate_ids:
+                candidate_ids.append(mid)
+
+        primary_path: Optional[str] = None
+        donor_paths: List[str] = []
+
+        for cid in candidate_ids:
+            resolved = await self.ensure_template_pptx_available(cid, bot=bot)
+            if resolved and os.path.exists(resolved):
+                if primary_path is None:
+                    primary_path = resolved
+                    # Check if primary template already has >= 12 slides; if so, 1 extra donor is plenty
+                    try:
+                        from pptx import Presentation
+                        if len(Presentation(primary_path).slides) >= 15:
+                            max_donors = min(max_donors, 1)
+                    except Exception:
+                        pass
+                else:
+                    if resolved != primary_path and resolved not in donor_paths:
+                        donor_paths.append(resolved)
+                        if len(donor_paths) >= max_donors:
+                            break
+
+        return primary_path, donor_paths
 
     def extract_cover_thumbnail(self, pptx_path: str, out_thumb_path: str, ppt_app=None) -> bool:
         """

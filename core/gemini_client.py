@@ -81,7 +81,7 @@ STAGE2_SLIDES_SCHEMA = {
                     "heading": {"type": "STRING"},
                     "archetype": {
                         "type": "STRING",
-                        "enum": ["cards_grid", "comparison_vs", "timeline_steps", "theory_concept"],
+                        "enum": ["cards_grid", "comparison_vs", "timeline_steps", "theory_concept", "metrics_stats"],
                     },
                     "cards": {
                         "type": "ARRAY",
@@ -184,7 +184,7 @@ async def call_gemini_cascade(
         m for m in GEMINI_MODELS_CASCADE if now - DEAD_MODELS_CACHE.get(m, 0) > DEAD_MODEL_TTL_SECONDS
     ]
     if not available_models:
-        available_models = ["gemini-3.1-flash-lite", "gemini-flash-latest"]
+        available_models = ["gemini-2.5-flash", "gemini-flash-latest"]
 
     gen_config: Dict[str, Any] = {
         "temperature": temperature,
@@ -284,11 +284,14 @@ async def call_gemini_cascade(
 # ── 5. PROMPT BUILDERS ────────────────────────────────────────────────────────
 def build_stage1_outline_prompt(topic_or_excerpt: str, slide_count: int = 10, doc_mode: str = "pptx") -> str:
     """Bosqich 1: Faqat sarlavha va reja bandlarini generatsiya qilish (~200 token)."""
+    core_count = max(3, slide_count - 3) if slide_count >= 6 else max(3, slide_count - 2)
     return (
-        f"Vazifa: Quyidagi mavzu/matn asosida {doc_mode.upper()} uchun aniq {slide_count} ta "
-        f"mantiqiy reja bandini (agenda) o'zbek adabiy tilida (lotin yozuvida) tuzib ber.\n"
+        f"Vazifa: Quyidagi mavzu/matn asosida {doc_mode.upper()} taqdimoti uchun aniq {core_count} ta "
+        f"asosiy mazmuniy reja bandini (agenda) o'zbek adabiy tilida (lotin yozuvida) tuzib ber.\n"
         f"{SOFF_CATEGORIES_PROMPT_NOTE}\n"
-        f"DIQQAT: Slayd matnlarini yozma, faqat qisqa va aniq reja sarlavhalarini qaytar!\n\n"
+        f"QAT'IY QOIDALAR:\n"
+        f"1. 'Muqova', 'Mundarija' yoki 'Xulosa' kabi texnik sarlavhalarni YOZMA (ular avtomatik qo'shiladi).\n"
+        f"2. Faqat mavzuning ichki ilmiy-tahliliy bo'limlari sarlavhalarini (4-8 so'zdan iborat aniq va mazmunli) qaytar!\n\n"
         f"Manba: {topic_or_excerpt[:2500]}"
     )
 
@@ -300,26 +303,22 @@ def build_stage2_locked_expansion_prompt(
 ) -> str:
     """
     Bosqich 2: Foydalanuvchi tahrirlab tasdiqlagan LOCKED_AGENDA ro'yxatiga 100% bo'ysunib,
-    har bir band uchun aniq bittadan slayd generatsiya qilish.
-    Har bir slayd uchun 3-4 ta to'liq tahliliy kartochka (sarlavha + batafsil ilmiy matn) yaratish.
+    har bir band uchun aniq bittadan chuqur tahliliy slayd generatsiya qilish.
     """
     numbered_agenda = "\n".join(f"{i}. {heading}" for i, heading in enumerate(locked_agenda, 1))
     return (
-        f"Sen O'zbekistonning yetakchi ilmiy eksperti va xalqaro darajadagi professional taqdimot muallifisan.\n"
-        f"Taqdimot mavzusi: «{title}»\n"
+        f"Taqdimot sarlavhasi: {title}\n"
         f"Foydalanuvchi tomonidan tasdiqlangan QAT'IY REJA ({len(locked_agenda)} ta band):\n"
         f"{numbered_agenda}\n\n"
         f"Qo'shimcha kontekst:\n{context_excerpt[:12000]}\n\n"
-        f"QAT'IY TALABLAR VA SIFAT STANDARTLARI:\n"
-        f"1. 'slides' massivida aniq {len(locked_agenda)} ta slayd bo'lishi shart — har bir reja bandiga aniq 1 tadan!\n"
-        f"2. Reja sarlavhalarini ('heading') rejadagi tartib va ma'noda o'zgartirmasdan aynan saqla.\n"
-        f"3. HAR BIR SLAYDDA aniq 3 tadan 4 tagacha tahliliy kartochka ('cards') bo'lishi shart:\n"
-        f"   - 'title': Kartochka sarlavhasi (2-5 ta so'zdan iborat aniq ilmiy/amaliy termin yoki yo'nalish);\n"
-        f"   - 'desc': 25-45 so'zdan iborat chuqur, ma'lumotga boy tushuntirish (texnik mexanizmi, raqamlar/foizlar, xalqaro tajriba, amaliy natija va afzalliklari bilan to'liq 2-3 ta gap);\n"
-        f"   - Qisqa, 1-2 so'zli yoki umumiy gaplar mutlaqo taqiqlanadi!\n"
-        f"4. 'points' massiviga har bir kartochkani 'Sarlavha: Batafsil tushuntirish...' shaklida to'liq joylashtir.\n"
-        f"5. 'speaker_note' maydoniga spiker nutqi uchun 1-2 ta jiddiy akademik xulosa yoz.\n"
-        f"6. O'zbek adabiy tilida (lotin yozuvida), to'liq orfografik to'g'ri, professional terminologiya bilan yoz."
+        f"QAT'IY QOIDALAR:\n"
+        f"1. 'slides' massivida aniq {len(locked_agenda)} ta slayd bo'lishi shart — har bir reja bandiga 1 tadan!\n"
+        f"2. Reja sarlavhalarini ('heading') o'zgartirma.\n"
+        f"3. MUHIM: Har bir slaydda 3 yoki 4 tadan boy, ilmiy asoslangan punkt ('points') yoz. "
+        f"Har bir 'point' QAT'IY ravishda «Kalit tushuncha: Batafsil tahliliy izoh, faktlar va mexanizmlar (15-24 so'z)» formatida bo'lishi shart! "
+        f"Hech qachon 1-2 so'zlik quruq ro'yxat yozma!\n"
+        f"4. Slaydlar ketma-ketligida turli xil 'archetype' lardan foydalan ('cards_grid', 'timeline_steps', 'comparison_vs', 'metrics_stats', 'theory_concept').\n"
+        f"5. Har bir slayd uchun ma'ruzachi nutqi ('speaker_note', 2-3 jumla) yoz."
     )
 
 

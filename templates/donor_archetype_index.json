@@ -7,24 +7,6 @@
     [
       "donors/cover_2.pptx",
       0
-    ],
-    [
-      "donors/cover_3.pptx",
-      0
-    ]
-  ],
-  "theory_concept": [
-    [
-      "donors/theory_concept_1.pptx",
-      0
-    ],
-    [
-      "donors/theory_concept_2.pptx",
-      0
-    ],
-    [
-      "donors/theory_concept_3.pptx",
-      0
     ]
   ],
   "agenda": [
@@ -34,10 +16,6 @@
     ],
     [
       "donors/agenda_2.pptx",
-      0
-    ],
-    [
-      "donors/agenda_3.pptx",
       0
     ]
   ],
@@ -49,9 +27,25 @@
     [
       "donors/cards_grid_2.pptx",
       0
+    ]
+  ],
+  "timeline_steps": [
+    [
+      "donors/timeline_steps_1.pptx",
+      0
     ],
     [
-      "donors/cards_grid_3.pptx",
+      "donors/timeline_steps_2.pptx",
+      0
+    ]
+  ],
+  "comparison_vs": [
+    [
+      "donors/comparison_vs_1.pptx",
+      0
+    ],
+    [
+      "donors/comparison_vs_2.pptx",
       0
     ]
   ],
@@ -63,9 +57,15 @@
     [
       "donors/metrics_stats_2.pptx",
       0
+    ]
+  ],
+  "theory_concept": [
+    [
+      "donors/theory_concept_1.pptx",
+      0
     ],
     [
-      "donors/metrics_stats_3.pptx",
+      "donors/theory_concept_2.pptx",
       0
     ]
   ],
@@ -76,30 +76,6 @@
     ],
     [
       "donors/conclusion_sources_2.pptx",
-      0
-    ],
-    [
-      "donors/conclusion_sources_3.pptx",
-      0
-    ]
-  ],
-  "timeline_steps": [
-    [
-      "donors/timeline_steps_1.pptx",
-      0
-    ],
-    [
-      "donors/timeline_steps_2.pptx",
-      0
-    ],
-    [
-      "donors/timeline_steps_3.pptx",
-      0
-    ]
-  ],
-  "comparison_vs": [
-    [
-      "donors/comparison_vs_1.pptx",
       0
     ]
   ]

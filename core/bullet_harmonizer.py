@@ -222,7 +222,7 @@ class BulletHarmonizer:
         raw_lines = text.split("\n")
         items: List[HierarchyItem] = []
 
-        bullet_pattern = re.compile(r'^\s*([•\-\*–—▪▫◦►✔➔\u2022\u25cf\u25b6\u2714\u2713]|\d+[\.\)]|[a-zA-Z][\.\)])\s*(.*)$')
+        bullet_pattern = re.compile(r'^\s*([•\-\*–—▪▫◦►✔➔\u2022\u25cf\u25b6\u2714\u2713]|\d+[\.\)](?!\d)|[a-zA-Z][\.\)])\s*(.*)$')
         lead_in_pattern = re.compile(r'^(?:\*\*(.*?)\*\*[:\s]*|([A-Za-z0-9\s\-_]{2,32}):\s+)(.*)$')
 
         prev_level = 0
