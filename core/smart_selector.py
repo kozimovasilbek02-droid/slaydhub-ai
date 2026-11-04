@@ -1,3 +1,4 @@
+import heapq
 # -*- coding: utf-8 -*-
 """
 core/smart_selector.py
@@ -86,19 +87,14 @@ class SmartTemplateSelector:
     @classmethod
     def expand_query_terms(cls, query: str) -> Set[str]:
         """Extracts and semantically expands query words into multi-language keywords."""
-        q_clean = (query or "").lower().strip()
-        terms = set(re.findall(r"\w+", q_clean))
+        # O'zbekcha apostrof turlarini (', ʻ, ʼ, `) yagona belgiga keltiramiz
+        q_clean = re.sub(r"[ʻʼ`’‘]", "'", (query or "").lower().strip())
+        terms = set(re.findall(r"\w+(?:'\w+)?", q_clean))
 
-        # Check multi-word keys first, then single words
         for phrase, expansions in MULTILINGUAL_SEMANTIC_MAP.items():
-            if phrase in q_clean:
+            if phrase in q_clean or phrase in terms:
                 terms.update(expansions)
-            else:
-                for word in phrase.split():
-                    if word in terms:
-                        terms.update(expansions)
 
-        # Filter out trivial stop words
         stop_words = {"va", "bilan", "uchun", "haqida", "dagi", "and", "the", "for", "with", "about"}
         return {t for t in terms if len(t) >= 2 and t not in stop_words}
 
@@ -143,8 +139,9 @@ class SmartTemplateSelector:
                 if term in filename:
                     term_score += 15.0
 
-            if tags:
-                tag_hits = sum(1 for t in expanded_terms if t in tags)
+            tag_set = item.get("_tags_set") or tags
+            if tag_set:
+                tag_hits = sum(1 for t in expanded_terms if t in tag_set)
                 term_score += tag_hits * 30.0
 
             # MUHIM: Toifa va HD muqova bonuslari faqat kamida 1 ta so'z mos kelgandagina beriladi!
@@ -158,5 +155,5 @@ class SmartTemplateSelector:
                     score += 10.0
                 scored.append((score, item))
 
-        scored.sort(key=lambda x: -x[0])
-        return [item for _, item in scored[:top_k]]
+        top_items = heapq.nlargest(top_k, scored, key=lambda x: x[0])
+        return [item for _, item in top_items]

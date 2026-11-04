@@ -19,7 +19,7 @@ P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 # Standard animation behavior tags in DrawingML/PresentationML
 ANIM_BEHAVIOR_TAGS = {
     "set", "anim", "animMotion", "animClr", "animScale",
-    "animRot", "animEffect", "cmd", "cBhvr"
+    "animRot", "animEffect", "cmd", "cBhvr", "audio", "video"
 }
 
 
@@ -71,7 +71,10 @@ class AnimationGuardian:
                 break
 
             tag = curr.tag.split("}")[-1]
-            if tag in ("childTnLst", "bldLst", "stCondLst", "endCondLst", "tgtEl", "cond"):
+            if tag in (
+                "childTnLst", "bldLst", "stCondLst", "endCondLst",
+                "prevCondLst", "nextCondLst", "tgtEl", "cond"
+            ):
                 if len(curr) == 0:
                     parent.remove(curr)
                     curr = parent
@@ -111,13 +114,15 @@ class AnimationGuardian:
             if len(bld_lst) == 0 and bld_lst.getparent() is not None:
                 bld_lst.getparent().remove(bld_lst)
 
-        # 2-QADAM: <p:spTgt> va <p:subSpTgt> zombi nishonlarini tozalash
-        for sp_tgt in list(timing_elem.xpath('.//*[local-name()="spTgt"]')):
+        # 2-QADAM: <p:spTgt>, <p:subSpTgt> va <p:inkTgt> zombi nishonlarini tozalash
+        for sp_tgt in list(timing_elem.xpath('.//*[local-name()="spTgt" or local-name()="inkTgt"]')):
             spid = (sp_tgt.get("spid") or "").strip()
-            sub_tgts = sp_tgt.xpath('./*[local-name()="subSpTgt"]')
-            has_dead_sub = any(((st.get("spid") or "").strip() not in valid_ids) for st in sub_tgts)
+            for st in list(sp_tgt.xpath('./*[local-name()="subSpTgt"]')):
+                if (st.get("spid") or "").strip() not in valid_ids:
+                    sp_tgt.remove(st)
+                    purged_count += 1
 
-            if spid and spid in valid_ids and not has_dead_sub:
+            if spid and spid in valid_ids:
                 continue
 
             purged_count += 1

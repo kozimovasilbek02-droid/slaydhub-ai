@@ -116,6 +116,7 @@ class TemplateCatalog:
             item = dict(tpl)
             item["_title_lc"] = item.get("title", "").lower()
             item["_fn_lc"] = item.get("filename", "").lower()
+            item["_tags_set"] = frozenset(item.get("tags") or ())
             self.templates[item["id"]] = item
 
         if os.path.exists(self.catalog_json_path):
@@ -130,6 +131,7 @@ class TemplateCatalog:
                             raw.pop("local_path", None)
                         raw["_title_lc"] = raw.get("title", "").lower()
                         raw["_fn_lc"] = raw.get("filename", "").lower()
+                        raw["_tags_set"] = frozenset(raw.get("tags") or ())
                         self.templates[raw["id"]] = raw
                 del extra, items
             except Exception as e:

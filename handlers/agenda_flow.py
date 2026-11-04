@@ -445,9 +445,8 @@ async def show_template_card(
         else:
             cat_info = {"name": "AI Tavsiya etgan eng mos dizaynlar", "emoji": "🎯", "badge": "AI Match"}
     else:
+        # _by_category _load_catalog() da allaqachon saralangan, qayta sort() qilinmaydi
         templates = GLOBAL_TEMPLATE_CATALOG.get_templates_by_category(cat_key)
-        # Sifatli ko'rinish uchun muqovasi mavjud shablonlarni oldinga qo'yish
-        templates.sort(key=lambda x: 0 if x.get("thumb_file_id") else 1)
         cat_info = CATEGORIES.get(cat_key, CATEGORIES["minimal"])
 
     if not templates:
@@ -477,7 +476,11 @@ async def show_template_card(
             perm_dir = os.path.join(tempfile.gettempdir(), "soff_ready")
             os.makedirs(perm_dir, exist_ok=True)
             cand_thumb = os.path.join(perm_dir, f"thumb_{tpl['id']}.jpeg")
-            if os.path.exists(cand_thumb) or GLOBAL_TEMPLATE_CATALOG.extract_cover_thumbnail(pptx_path, cand_thumb):
+            if not os.path.exists(cand_thumb):
+                await asyncio.to_thread(
+                    GLOBAL_TEMPLATE_CATALOG.extract_cover_thumbnail, pptx_path, cand_thumb
+                )
+            if os.path.exists(cand_thumb):
                 thumb_media = FSInputFile(cand_thumb)
 
     await state.set_state(SlideCreationFSM.selecting_template)
@@ -837,65 +840,65 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
                 job_id=f"pptx_{user_id}_{int(time.time())}",
                 coro_factory=_build_slide_job,
             )
+
+            # Soff.uz va DTM Test registratsiyasi
+            actual_slides_count = len(full_spec.get("slides", [])) + 2
+            soff_price = 3000 if actual_slides_count <= 6 else 7000 if actual_slides_count <= 12 else 10000
+            upload_id = f"{user_id}_{int(time.time())}"
+            PENDING_UPLOADS[upload_id] = {
+                "file_path": out_path,
+                "title": title,
+                "description": full_spec.get("description", f"{title} bo'yicha taqdimot"),
+                "price": soff_price,
+                "category_id": category_id,
+                "tags": full_spec.get("tags", ""),
+                "created_at": time.time(),
+            }
+
+            safe_fn = "".join(c for c in title if c.isalnum() or c in (" ", "_", "-")).strip()[:45] or "Taqdimot"
+            doc_file = FSInputFile(out_path, filename=f"{safe_fn}.pptx")
+            kb_after = [
+                [
+                    InlineKeyboardButton(
+                        text="📋 Shu mavzuda DTM Test yaratish", callback_data=f"make_quiz_{upload_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🛒 Soff.uz do'koniga sotuvga qo'yish", callback_data=f"soff_upload_{upload_id}"
+                    )
+                ],
+                [InlineKeyboardButton(text="◀️ Asosiy menyu", callback_data="menu_home")],
+            ]
+
+            # Avval faylni foydalanuvchiga muvaffaqiyatli yetkazamiz, keyin draftni o'chiramiz
+            await callback.message.answer_document(
+                doc_file,
+                caption=(
+                    f"✅ <b>«{html.escape(str(title))}»</b> taqdimoti muvaffaqiyatli tayyorlandi!\n\n"
+                    f"🎨 <b>Shablon:</b> {html.escape(tpl_title)}\n"
+                    f"📊 <b>Slaydlar soni:</b> {actual_slides_count} ta (Muqova, Reja va Xulosa bilan)\n"
+                    f"💰 <b>Soff.uz tavsiya narxi:</b> {soff_price:,} so'm"
+                ),
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_after),
+                parse_mode="HTML",
+            )
+            await delete_draft(user_id, "pptx")
+            await state.clear()
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
         except Exception as exc:
             if used_free_credit:
                 await refund_free_credit(user_id)
             elif used_paid_balance:
                 await refund_user_balance(user_id, slide_price)
             await status_msg.edit_text(
-                f"❌ Slayd yaratishda xatolik: {html.escape(str(exc))}\n"
-                f"<i>Hisobingizdan mablag' yechilmadi (qaytarildi). Qayta urinib ko'ring.</i>",
+                f"❌ Slayd yaratishda yoki yuborishda xatolik: {html.escape(str(exc))}\n"
+                f"<i>Hisobingizdan mablag' yechilmadi (to'liq qaytarildi). Qayta urinib ko'ring.</i>",
                 parse_mode="HTML",
             )
             return
-
-        # Soff.uz va DTM Test registratsiyasi
-        actual_slides_count = len(full_spec.get("slides", [])) + 2
-        soff_price = 3000 if actual_slides_count <= 6 else 7000 if actual_slides_count <= 12 else 10000
-        upload_id = f"{user_id}_{int(time.time())}"
-        PENDING_UPLOADS[upload_id] = {
-            "file_path": out_path,
-            "title": title,
-            "description": full_spec.get("description", f"{title} bo'yicha taqdimot"),
-            "price": soff_price,
-            "category_id": category_id,
-            "tags": full_spec.get("tags", ""),
-            "created_at": time.time(),
-        }
-
-        await delete_draft(user_id, "pptx")
-        await state.clear()
-
-        safe_fn = "".join(c for c in title if c.isalnum() or c in (" ", "_", "-")).strip()[:45] or "Taqdimot"
-        doc_file = FSInputFile(out_path, filename=f"{safe_fn}.pptx")
-        kb_after = [
-            [
-                InlineKeyboardButton(
-                    text="📋 Shu mavzuda DTM Test yaratish", callback_data=f"make_quiz_{upload_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🛒 Soff.uz do'koniga sotuvga qo'yish", callback_data=f"soff_upload_{upload_id}"
-                )
-            ],
-            [InlineKeyboardButton(text="◀️ Asosiy menyu", callback_data="menu_home")],
-        ]
-
-        await callback.message.answer_document(
-            doc_file,
-            caption=(
-                f"✅ <b>«{html.escape(str(title))}»</b> taqdimoti muvaffaqiyatli tayyorlandi!\n\n"
-                f"🎨 <b>Shablon:</b> {html.escape(tpl_title)}\n"
-                f"📊 <b>Slaydlar soni:</b> {actual_slides_count} ta (Muqova, Reja va Xulosa bilan)\n"
-                f"💰 <b>Soff.uz tavsiya narxi:</b> {soff_price:,} so'm"
-            ),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_after),
-            parse_mode="HTML",
-        )
-        try:
-            await status_msg.delete()
-        except Exception:
-            pass
     finally:
         ACTIVE_BUILDS.discard(user_id)

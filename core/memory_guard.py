@@ -75,18 +75,28 @@ def enforce_tmp_quota(target_dir: str) -> None:
                     pass
             PENDING_UPLOADS.pop(uid, None)
 
-    # 2. target_dir ichidagi barcha fayllarni (cloud_templates va thumb_* bilan birga) LRU bo'yicha tekshirish
+    now = time.time()
+    # 2. target_dir ichidagi fayllarni LRU bo'yicha tekshirish (in-flight .part va yangi uploadlarni himoyalash)
+    active_upload_paths = {
+        meta.get("file_path") for meta in PENDING_UPLOADS.values()
+        if now - meta.get("created_at", 0) < 300  # Oxirgi 5 daqiqada yaratilgan fayllar
+    }
     all_files = []
     total_bytes = 0
     for root, _, files in os.walk(target_dir):
         for fn in files:
-            if fn.endswith(".part"):
-                continue  # In-flight yuklanayotgan faylni himoya qilish
             fp = os.path.join(root, fn)
             try:
                 st = os.stat(fp)
+                if fn.endswith(".part"):
+                    # 5 daqiqadan oshgan osilib qolgan (zombie) .part fayllarni darhol o'chiramiz
+                    if now - st.st_mtime > 300:
+                        os.remove(fp)
+                    continue
                 total_bytes += st.st_size
-                all_files.append((st.st_mtime, fp, st.st_size))
+                # Aktiv upload fayllariga yuqori mtime berib, eng oxirida o'chiriladigan qilamiz
+                sort_key = st.st_mtime + (3600 if fp in active_upload_paths else 0)
+                all_files.append((sort_key, fp, st.st_size))
             except OSError:
                 pass
 

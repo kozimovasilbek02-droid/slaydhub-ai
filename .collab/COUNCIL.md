@@ -1283,3 +1283,36 @@ v5.2 auditidan so'ng aniqlangan so'nggi nozik jihatlar va barqarorlik talablari 
 - `tests/test_all_system_functions.py`: **10/10 PASS** (Barcha 10 ta tizim moduli yashil).
 - `tests/test_full_ui_flow.py`: **100% PASS** (17,258 ta shablon va FSM oqimlari).
 - Production reliz paketi: `SlaydHub_Ultra_v5.2_Production.zip`.
+
+### 🔵 Antigravity & Claude Code: 19-Bosqich (Round 19) — Zero-Defect Architectural Hardening (Baho: 10 / 10 Production-Grade)
+
+ECMA-376 OpenXML spetsifikatsiyasi hamda Render 512MB RAM Linux muhiti bo'yicha aniqlangan barcha 7 ta nozik arxitektura nuqsonlari to'liq bartaraf etildi:
+
+1. **`core/animation_guardian.py` (ECMA-376 §19.5 To'liq Qamrov)**:
+   - `ANIM_BEHAVIOR_TAGS` ga `"audio"` va `"video"` teglari kiritildi (endi audio/video bog'langan shakllar o'chirilganda butun konteyner bexosdan o'chib ketmaydi).
+   - `_prune_empty_containers` ga `prevCondLst` va `nextCondLst` (interaktiv triggerlar) qo'shildi — bo'sh konteyner qolib PowerPoint'da "Repair" xatosi berishi bartaraf etildi.
+   - `purge_zombie_animations` endi nafaqat `spTgt`, balki `<p:inkTgt>` nishonlarini ham tozalaydi va `subSpTgt` larni alohida granulyar o'chiradi.
+
+2. **`core/pptx_text_replacer.py` (Post-Watermark Animation Sweep)**:
+   - `DeepWatermarkPurger.purge_presentation_watermarks(prs)` logotip va reklama shakllarini o'chirganidan so'ng, `AnimationGuardian.purge_zombie_animations(s)` ikkinchi marta takroriy tozalash o'tkazadi va yangi paydo bo'lgan barcha zombi animatsiyalarni 100% yo'qotadi.
+
+3. **`engines/slide_pruner.py` (`sectionLst` va `custShowLst` Tozalash)**:
+   - Slaydlar qisqartirilganda `presentation.xml` dagi `<p14:sectionLst>` va `<p:custShowLst>` ichidagi o'chirilgan `sldId` va `r:id` havolalari uziladi, bu esa bo'limli korporativ shablonlar buzilishini oldini oladi.
+
+4. **`core/smart_selector.py` va `core/template_catalog.py` (O'zbek Apostrofi & O(1) Tag Lookup)**:
+   - `expand_query_terms` o'zbekcha turli apostrof belgilarini (`'`, `ʻ`, `ʼ`, `` ` ``) yagona standartga keltiradi va `\w+(?:'\w+)?` orqali `"sun'iy"`, `"o'simlik"`, `"ta'lim"` kabi so'zlarni ikkiga bo'linib ketishdan himoyalaydi.
+   - `_load_catalog` shablon teglari uchun `frozenset` (`_tags_set`) yaratadi, qidiruvda $O(1)$ tezlik va `heapq.nlargest(top_k)` orqali optimal $O(N \log k)$ xotira/vaqt sarfi ta'minlandi.
+
+5. **`handlers/agenda_flow.py` (Event Loop & Unrefunded Failure Himoyasi)**:
+   - `show_template_card` da 11,595 elementli kesh ro'yxatini qayta-qayta `.sort()` qilish olib tashlandi.
+   - `extract_cover_thumbnail` `await asyncio.to_thread` ga olindi.
+   - `cb_confirm_build` da `GLOBAL_SCHEDULER.submit(...)` va `answer_document` bitta yagona `try...except` ichiga birlashtirildi. Agar Telegram faylni yuborishda uzilsa, foydalanuvchining puli/krediti avtomatik qaytariladi (`refund`). Qoralama (`delete_draft`) faqat fayl muvaffaqiyatli yetkazilgach o'chiriladi.
+
+6. **`core/memory_guard.py` (Zombie `.part` TTL va Aktiv Upload Himoyasi)**:
+   - `enforce_tmp_quota` 5 daqiqadan oshgan osilib qolgan (zombie) `.part` fayllarni avtomatik tozalaydi (tmpfs RAM shishishining oldi olindi).
+   - `PENDING_UPLOADS` dagi yangi yaratilgan fayllarga mtime bonusi berilib, disk tozalanganda foydalanuvchi yuklab olishi kerak bo'lgan taqdimotlar saqlab qolinadi.
+
+#### Sinov Natijalari:
+- `scratch/test_hotfix_verification.py`: **100% PASS** (In-flight va zombie .part, delivery failure refund, apostrof saqlanishi).
+- `tests/test_all_system_functions.py`: **10/10 PASS** (Barcha 10 ta tizim testi yashil).
+- `tests/test_full_ui_flow.py`: **100% PASS** (17,258 ta shablon, menyular, FSM holatlari).

@@ -71,22 +71,42 @@ class SlidePruner:
 
     def _remove_unwanted_slides(self, retained_indices: Set[int]) -> None:
         """
-        OpenXML sldIdLst elementlarini orqadan oldinga qarab o'chiradi VA
-        ularning rId bog'lamalarini (drop_rel) uzib, ZIP va RAM shishishini bartaraf etadi.
+        OpenXML sldIdLst elementlarini orqadan oldinga qarab o'chiradi, rId bog'lamalarini
+        (drop_rel) uzadi hamda p14:sectionLst va custShowLst dagi zombi sldId larni tozalaydi.
         """
         sldIdLst = self.prs.slides._sldIdLst
         total = len(self.prs.slides)
+        removed_ids: Set[str] = set()
+        removed_rids: Set[str] = set()
 
         for i in range(total - 1, -1, -1):
             if i not in retained_indices:
                 try:
                     sldId = sldIdLst[i]
+                    sid_val = sldId.get("id")
                     rId = sldId.rId
+                    if sid_val:
+                        removed_ids.add(str(sid_val))
+                    if rId:
+                        removed_rids.add(str(rId))
                     sldIdLst.remove(sldId)
                     if rId:
                         self.prs.part.drop_rel(rId)
                 except Exception as exc:
                     logger.warning(f"Slayd {i} ni o'chirishda xatolik: {exc}")
+
+        # presentation.xml ichidagi sectionLst va custShowLst dan o'chirilgan slaydlarni tozalash
+        try:
+            pres_elm = self.prs._element
+            for sec_sld in pres_elm.xpath('.//*[local-name()="section"]//*[local-name()="sldId"]'):
+                if str(sec_sld.get("id", "")) in removed_ids and sec_sld.getparent() is not None:
+                    sec_sld.getparent().remove(sec_sld)
+            for cust_sld in pres_elm.xpath('.//*[local-name()="custShow"]//*[local-name()="sld"]'):
+                r_id = cust_sld.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+                if r_id in removed_rids and cust_sld.getparent() is not None:
+                    cust_sld.getparent().remove(cust_sld)
+        except Exception as exc:
+            logger.debug(f"sectionLst/custShowLst tozalash ogohlantirish: {exc}")
 
     def save(self, out_path: str) -> str:
         self.prs.save(out_path)

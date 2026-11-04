@@ -3511,6 +3511,12 @@ class TemplateDeckAssembler:
         # Comprehensive presentation watermark and ad sweep
         DeepWatermarkPurger.purge_presentation_watermarks(prs)
 
+        # Watermark purger o'chirgan shakllardan qolgan zombi animatsiyalarni yakuniy tozalash
+        for s in prs.slides:
+            try:
+                AnimationGuardian.purge_zombie_animations(s)
+            except Exception as e_anim:
+                logger.debug(f"Final AnimationGuardian sweep error: {e_anim}")
 
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         prs.save(output_path)
