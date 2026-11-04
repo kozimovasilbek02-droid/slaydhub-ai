@@ -196,11 +196,19 @@ async def cb_referral(callback: CallbackQuery):
 @router.callback_query(F.data == "menu_home")
 async def cb_home(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.edit_text(
-        "🏠 <b>Asosiy menyu bo'limini tanlang:</b>",
-        reply_markup=get_main_menu_keyboard(),
-        parse_mode="HTML",
-    )
+    txt = "🏠 <b>Asosiy menyu bo'limini tanlang:</b>"
+    kb = get_main_menu_keyboard()
+    if callback.message.photo or callback.message.document:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(txt, reply_markup=kb, parse_mode="HTML")
+    else:
+        try:
+            await callback.message.edit_text(txt, reply_markup=kb, parse_mode="HTML")
+        except Exception:
+            await callback.message.answer(txt, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
 
 

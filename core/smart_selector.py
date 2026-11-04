@@ -103,49 +103,6 @@ class SmartTemplateSelector:
         return {t for t in terms if len(t) >= 2 and t not in stop_words}
 
     @classmethod
-    def score_template(
-        cls,
-        item: Dict[str, Any],
-        expanded_terms: Set[str],
-        target_category: Optional[str] = None
-    ) -> float:
-        """Calculates relevance score for a single template."""
-        title = item.get("title", "").lower()
-        filename = item.get("filename", "").lower()
-        cat = item.get("category", "")
-
-        score = 0.0
-
-        # Category affinity
-        if target_category and cat == target_category:
-            score += 35.0
-
-        # Term matches
-        for term in expanded_terms:
-            if len(term) < 3:
-                continue
-
-            # Exact whole word match in title (+40)
-            if re.search(r"\b" + re.escape(term) + r"\b", title):
-                score += 40.0
-            # Substring match in title (+20)
-            elif term in title:
-                score += 20.0
-
-            # Match in filename (+15)
-            if term in filename:
-                score += 15.0
-
-        # Quality bonus: templates with verified HD covers & documents ready
-        if score > 0:
-            if item.get("thumb_file_id"):
-                score += 10.0
-            if item.get("pptx_file_id"):
-                score += 10.0
-
-        return score
-
-    @classmethod
     def search(
         cls,
         catalog: Dict[str, Dict[str, Any]],
@@ -153,32 +110,53 @@ class SmartTemplateSelector:
         top_k: int = 6,
         target_category: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Performs semantic search across catalog templates.
-        Returns top_k most relevant template dictionaries.
-        """
         if not catalog:
             return []
 
         expanded_terms = cls.expand_query_terms(query)
+        if not expanded_terms:
+            return []
+
+        # Regex'ni 17,250 marta emas, qidiruv boshida FAQAT 1 MARTA kompilyatsiya qilamiz
+        escaped = [re.escape(t) for t in expanded_terms if len(t) >= 2]
+        word_boundary_re = re.compile(r"\b(?:" + "|".join(escaped) + r")\b") if escaped else None
+        substr_terms = [t for t in expanded_terms if len(t) >= 3]
+
         scored: List[tuple[float, Dict[str, Any]]] = []
 
         for item in catalog.values():
-            score = cls.score_template(item, expanded_terms, target_category)
-            if score > 0:
+            title = item.get("_title_lc") or item.get("title", "").lower()
+            filename = item.get("_fn_lc") or item.get("filename", "").lower()
+            tags = item.get("tags") or ()
+            cat = item.get("category", "")
+
+            term_score = 0.0
+            if word_boundary_re:
+                exact_hits = set(word_boundary_re.findall(title))
+                term_score += len(exact_hits) * 40.0
+            else:
+                exact_hits = set()
+
+            for term in substr_terms:
+                if term not in exact_hits and term in title:
+                    term_score += 20.0
+                if term in filename:
+                    term_score += 15.0
+
+            if tags:
+                tag_hits = sum(1 for t in expanded_terms if t in tags)
+                term_score += tag_hits * 30.0
+
+            # MUHIM: Toifa va HD muqova bonuslari faqat kamida 1 ta so'z mos kelgandagina beriladi!
+            if term_score > 0:
+                score = term_score
+                if target_category and cat == target_category:
+                    score += 35.0
+                if item.get("thumb_file_id"):
+                    score += 10.0
+                if item.get("pptx_file_id"):
+                    score += 10.0
                 scored.append((score, item))
 
-        # Sort by score descending
         scored.sort(key=lambda x: -x[0])
-
-        results = [item for _, item in scored[:top_k]]
-
-        # Fallback: if query produced no matches, return category templates or popular seeds
-        if not results:
-            if target_category:
-                cat_items = [i for i in catalog.values() if i.get("category") == target_category]
-                results = cat_items[:top_k]
-            else:
-                results = list(catalog.values())[:top_k]
-
-        return results
+        return [item for _, item in scored[:top_k]]

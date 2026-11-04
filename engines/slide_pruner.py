@@ -71,8 +71,8 @@ class SlidePruner:
 
     def _remove_unwanted_slides(self, retained_indices: Set[int]) -> None:
         """
-        OpenXML sldIdLst ichidagi sldId elementlarini orqadan oldinga (reverse) qarab o'chiradi.
-        Bu indeks siljishi (index shift) muammolarini 100% oldini oladi.
+        OpenXML sldIdLst elementlarini orqadan oldinga qarab o'chiradi VA
+        ularning rId bog'lamalarini (drop_rel) uzib, ZIP va RAM shishishini bartaraf etadi.
         """
         sldIdLst = self.prs.slides._sldIdLst
         total = len(self.prs.slides)
@@ -80,7 +80,11 @@ class SlidePruner:
         for i in range(total - 1, -1, -1):
             if i not in retained_indices:
                 try:
-                    sldIdLst.remove(sldIdLst[i])
+                    sldId = sldIdLst[i]
+                    rId = sldId.rId
+                    sldIdLst.remove(sldId)
+                    if rId:
+                        self.prs.part.drop_rel(rId)
                 except Exception as exc:
                     logger.warning(f"Slayd {i} ni o'chirishda xatolik: {exc}")
 

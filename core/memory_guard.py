@@ -59,11 +59,12 @@ async def run_ram_heavy_sync(func: Callable, *args, **kwargs) -> Any:
 
 
 def enforce_tmp_quota(target_dir: str) -> None:
-    """Agar /tmp/soff_ready 60 MB dan oshsa, eng eski fayllarni LRU tartibida o'chiradi."""
+    """/tmp/soff_ready (shu jumladan cloud_templates) hajmini 60 MB kvota ichida ushlab turadi."""
     if not os.path.exists(target_dir):
         return
     now = time.time()
-    # 1. Muddati o'tganlarni o'chirish (TTL: 30 min)
+
+    # 1. PENDING_UPLOADS dagi muddati o'tgan fayllarni tozalash
     for uid, meta in list(PENDING_UPLOADS.items()):
         if now - meta.get("created_at", now) > UPLOAD_CACHE_TTL_SECONDS:
             fp = meta.get("file_path")
@@ -74,25 +75,27 @@ def enforce_tmp_quota(target_dir: str) -> None:
                     pass
             PENDING_UPLOADS.pop(uid, None)
 
-    # 2. Hajm kvotasini tekshirish (LRU Eviction)
-    entries = []
+    # 2. target_dir ichidagi barcha fayllarni (cloud_templates va thumb_* bilan birga) LRU bo'yicha tekshirish
+    all_files = []
     total_bytes = 0
-    for uid, meta in list(PENDING_UPLOADS.items()):
-        fp = meta.get("file_path")
-        if fp and os.path.exists(fp):
-            sz = os.path.getsize(fp)
-            total_bytes += sz
-            entries.append((meta.get("created_at", 0.0), uid, fp, sz))
+    for root, _, files in os.walk(target_dir):
+        for fn in files:
+            fp = os.path.join(root, fn)
+            try:
+                st = os.stat(fp)
+                total_bytes += st.st_size
+                all_files.append((st.st_mtime, fp, st.st_size))
+            except OSError:
+                pass
 
-    entries.sort(key=lambda x: x[0])  # Eng eskisi birinchi
-    while total_bytes > MAX_TMP_STORAGE_BYTES and entries:
-        _, uid, fp, sz = entries.pop(0)
+    all_files.sort(key=lambda x: x[0])  # Eng eski ishlatilgan fayl birinchi o'chadi
+    while total_bytes > MAX_TMP_STORAGE_BYTES and all_files:
+        _, fp, sz = all_files.pop(0)
         try:
             os.remove(fp)
+            total_bytes -= sz
         except OSError:
             pass
-        PENDING_UPLOADS.pop(uid, None)
-        total_bytes -= sz
 
 
 @dataclass(order=True)
@@ -142,9 +145,17 @@ class SlaydHubTaskScheduler:
         while self._running:
             job = await self.queue.get()
             try:
+                if job.future.cancelled():
+                    continue
                 result = await job.coro_factory()
                 if not job.future.done():
                     job.future.set_result(result)
+            except asyncio.CancelledError as cancel_exc:
+                if not self._running:
+                    self.queue.task_done()
+                    break
+                if not job.future.done():
+                    job.future.cancel()
             except Exception as exc:
                 if not job.future.done():
                     job.future.set_exception(exc)

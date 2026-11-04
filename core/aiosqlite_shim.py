@@ -35,7 +35,7 @@ class AsyncConnection:
     async def _ensure_conn(self) -> sqlite3.Connection:
         if self._conn is None:
             self._conn = await asyncio.to_thread(
-                sqlite3.connect, self._path, timeout=self._timeout, check_same_thread=False
+                sqlite3.connect, self._path, timeout=self._timeout, check_same_thread=False, isolation_level=None
             )
             self._conn.row_factory = self.row_factory
         return self._conn

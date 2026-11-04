@@ -1,3 +1,4 @@
+import asyncio
 # -*- coding: utf-8 -*-
 """
 handlers/agenda_flow.py
@@ -203,6 +204,8 @@ def get_agenda_editor_keyboard(template_title: str) -> InlineKeyboardMarkup:
 @router.message(Command("catalog"))
 @router.callback_query(F.data == "menu_catalog")
 async def show_catalog_menu(event: Message | CallbackQuery, state: FSMContext):
+    if isinstance(event, Message):
+        await state.clear()
     """17,250 ta shablonning toifalar katalogi."""
     txt = (
         "🗂️ <b>SLAYDHUB ULTRA — 17,250 TA SHABLONLAR KATALOGI</b>\n\n"
@@ -233,6 +236,8 @@ async def show_catalog_menu(event: Message | CallbackQuery, state: FSMContext):
 @router.message(Command("search"))
 @router.callback_query(F.data == "menu_search_prompt")
 async def handle_search_command(event: Message | CallbackQuery, state: FSMContext):
+    if isinstance(event, Message):
+        await state.clear()
     """17,250 ta shablondan semantik kalit so'z bo'yicha qidirish."""
     query = ""
     if isinstance(event, Message) and event.text:
@@ -334,7 +339,15 @@ async def process_topic_with_preset_template(message: Message, state: FSMContext
     tpl_title = data.get("selected_tpl_title", "Tanlangan Shablon")
     tpl_id = data.get("selected_tpl_id", "tpl_med_heartbeat")
 
-    await state.update_data(raw_topic=topic)
+    rec_cat = GLOBAL_TEMPLATE_CATALOG.detect_category(topic)
+    smart_matches = await asyncio.to_thread(
+        GLOBAL_TEMPLATE_CATALOG.smart_search, topic, 6, rec_cat
+    )
+    await state.update_data(
+        raw_topic=topic,
+        rec_cat=rec_cat,
+        smart_ids=[t["id"] for t in smart_matches],
+    )
     await state.set_state(SlideCreationFSM.selecting_slide_count)
 
     txt = (
@@ -689,13 +702,21 @@ async def process_add_item(message: Message, state: FSMContext):
 
 # ── 3. YAKUNIY SLAYD GENERATSIYASI ───────────────────────────────────────────
 
+ACTIVE_BUILDS: set[int] = set()
+
 @router.callback_query(F.data == "agenda_confirm_build")
 async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
+    if user_id in ACTIVE_BUILDS:
+        await callback.answer("⏳ Slaydingiz hozirda tayyorlanmoqda, iltimos kuting...", show_alert=True)
+        return
+
     draft = await get_draft(user_id, "pptx")
     if not draft:
         await callback.answer("Qoralama topilmadi", show_alert=True)
         return
+
+    ACTIVE_BUILDS.add(user_id)
 
     user = await get_or_create_user(user_id)
     used_free_credit = await use_free_credit(user_id)
@@ -821,6 +842,7 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
             f"<i>Hisobingizdan mablag' yechilmadi (qaytarildi). Qayta urinib ko'ring.</i>",
             parse_mode="HTML",
         )
+        ACTIVE_BUILDS.discard(user_id)
         return
 
     # Soff.uz va DTM Test registratsiyasi

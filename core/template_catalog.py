@@ -111,24 +111,42 @@ class TemplateCatalog:
         self._load_catalog()
 
     def _load_catalog(self) -> None:
-        """Katalogni yuklaydi: avval builtin shablonlar, so'ngra json fayl ma'lumotlari."""
+        self._by_category: Dict[str, List[Dict[str, Any]]] = {}
         for tpl in BUILTIN_SEED_TEMPLATES:
-            self.templates[tpl["id"]] = dict(tpl)
+            item = dict(tpl)
+            item["_title_lc"] = item.get("title", "").lower()
+            item["_fn_lc"] = item.get("filename", "").lower()
+            self.templates[item["id"]] = item
 
-        # Agar templates_catalog.json fayli mavjud bo'lsa, ustiga birlashtiramiz
         if os.path.exists(self.catalog_json_path):
             try:
                 with open(self.catalog_json_path, "r", encoding="utf-8") as f:
                     extra = json.load(f)
-                    if isinstance(extra, list):
-                        for item in extra:
-                            if "id" in item:
-                                self.templates[item["id"]] = item
-                    elif isinstance(extra, dict):
-                        self.templates.update(extra)
-                logger.info(f"Templates catalog yuklandi: {len(self.templates)} ta shablon.")
+                items = extra if isinstance(extra, list) else extra.values() if isinstance(extra, dict) else []
+                for raw in items:
+                    if isinstance(raw, dict) and "id" in raw:
+                        # Render RAM tejash: Windows local_path ni xotirada saqlamaymiz
+                        if os.name != "nt":
+                            raw.pop("local_path", None)
+                        raw["_title_lc"] = raw.get("title", "").lower()
+                        raw["_fn_lc"] = raw.get("filename", "").lower()
+                        self.templates[raw["id"]] = raw
+                del extra, items
             except Exception as e:
                 logger.warning(f"templates_catalog.json o'qishda xatolik: {e}")
+
+        # Toifalar bo'yicha oldindan saralangan kesh (har klikda 11,595 ta elementni sort qilmaslik uchun)
+        for tpl in self.templates.values():
+            cat = tpl.get("category", "minimal")
+            self._by_category.setdefault(cat, []).append(tpl)
+        for cat_list in self._by_category.values():
+            cat_list.sort(key=lambda x: 0 if x.get("thumb_file_id") else 1)
+
+        try:
+            from core.memory_guard import release_c_and_python_memory
+            release_c_and_python_memory()
+        except Exception:
+            pass
 
     def detect_category(self, topic: str) -> str:
         """Mavzu yoki fayl nomi bo'yicha eng mos keladigan toifani aniqlaydi (UZ / EN)."""
@@ -162,11 +180,9 @@ class TemplateCatalog:
         return "minimal"
 
     def get_templates_by_category(self, cat_key: str) -> List[Dict[str, Any]]:
-        """Toifa bo'yicha shablonlar ro'yxatini qaytaradi."""
-        results = [t for t in self.templates.values() if t.get("category") == cat_key]
+        results = self._by_category.get(cat_key) or []
         if not results:
-            # Fallback to general templates if category has no specific templates yet
-            results = [t for t in self.templates.values() if t.get("category") in ("biz", "tech")]
+            results = (self._by_category.get("biz") or []) + (self._by_category.get("tech") or [])
         return results
 
     def smart_search(
@@ -230,37 +246,46 @@ class TemplateCatalog:
         return None
 
     async def ensure_template_pptx_available(self, tpl_id: str, bot=None) -> Optional[str]:
-        """
-        Shablon faylini doimiy mavjud bo'lishini ta'minlaydi:
-        1. Agar shablon lokal diskda bo'lsa (templates/ papkasida), shu zahoti qaytaradi.
-        2. Agar kompyuter o'chiq bo'lsa va bot Render bulutida ishlayotgan bo'lsa,
-           shablonni Telegram yopiq kanalidan (pptx_file_id) tezkor CDN orqali /tmp ga yuklab oladi!
-        """
         local_path = self.resolve_template_pptx_path(tpl_id)
-        if local_path and os.path.exists(local_path):
+        if local_path and os.path.exists(local_path) and zipfile.is_zipfile(local_path):
             return local_path
 
         tpl = self.get_template(tpl_id)
         if not tpl:
             return None
 
-        # Telegram Cloud CDN yuklab olish
         pptx_file_id = tpl.get("pptx_file_id")
         if pptx_file_id and bot:
-            try:
-                dest_dir = Path(tempfile.gettempdir()) / "soff_ready" / "cloud_templates"
-                dest_dir.mkdir(parents=True, exist_ok=True)
-                dest_path = dest_dir / f"{tpl_id}.pptx"
-                if dest_path.exists() and dest_path.stat().st_size > 5000:
-                    return str(dest_path)
+            dest_dir = Path(tempfile.gettempdir()) / "soff_ready" / "cloud_templates"
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = dest_dir / f"{tpl_id}.pptx"
 
+            if dest_path.exists():
+                if dest_path.stat().st_size > 5000 and zipfile.is_zipfile(dest_path):
+                    os.utime(dest_path, None)  # LRU uchun vaqtni yangilash
+                    return str(dest_path)
+                try:
+                    dest_path.unlink()  # Buzilgan chala faylni tozalash
+                except OSError:
+                    pass
+
+            # Atomic Download: avval .part faylga yozib, ZIP butunligini tekshirib, keyin os.replace qilamiz
+            import asyncio
+            part_path = dest_dir / f"{tpl_id}.{os.getpid()}.{id(asyncio.current_task())}.part"
+            try:
                 file_info = await bot.get_file(pptx_file_id)
-                await bot.download_file(file_info.file_path, destination=dest_path)
-                if dest_path.exists() and dest_path.stat().st_size > 5000:
-                    logger.info(f"Telegram Cloud'dan shablon muvaffaqiyatli yuklab olindi: {tpl_id}")
+                await bot.download_file(file_info.file_path, destination=part_path)
+                if part_path.exists() and part_path.stat().st_size > 5000 and zipfile.is_zipfile(part_path):
+                    os.replace(part_path, dest_path)
                     return str(dest_path)
             except Exception as e:
                 logger.error(f"Telegram Cloud'dan shablon yuklashda xatolik ({tpl_id}): {e}")
+            finally:
+                if part_path.exists():
+                    try:
+                        part_path.unlink()
+                    except OSError:
+                        pass
 
         return None
 
