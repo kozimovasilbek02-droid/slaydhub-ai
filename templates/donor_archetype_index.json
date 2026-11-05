@@ -39,6 +39,16 @@
       0
     ]
   ],
+  "metrics_stats": [
+    [
+      "donors/metrics_stats_1.pptx",
+      0
+    ],
+    [
+      "donors/metrics_stats_2.pptx",
+      0
+    ]
+  ],
   "comparison_vs": [
     [
       "donors/comparison_vs_1.pptx",
@@ -49,13 +59,9 @@
       0
     ]
   ],
-  "metrics_stats": [
+  "table_data": [
     [
-      "donors/metrics_stats_1.pptx",
-      0
-    ],
-    [
-      "donors/metrics_stats_2.pptx",
+      "donors/table_data_1.pptx",
       0
     ]
   ],
@@ -76,6 +82,16 @@
     ],
     [
       "donors/conclusion_sources_2.pptx",
+      0
+    ]
+  ],
+  "qa_discussion": [
+    [
+      "donors/cards_grid_1.pptx",
+      0
+    ],
+    [
+      "donors/cards_grid_2.pptx",
       0
     ]
   ]

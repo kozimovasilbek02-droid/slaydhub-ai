@@ -55,7 +55,7 @@ async def run_ram_heavy_sync(func: Callable, *args, **kwargs) -> Any:
         try:
             return await asyncio.wait_for(
                 asyncio.to_thread(func, *args, **kwargs),
-                timeout=75.0,  # Hech bir sinxron operatsiya 75s dan ortiq RAM_COMPUTE_LOCK ni ushlab turolmaydi
+                timeout=120.0,  # 120s xavfsiz vaqt chegarasi
             )
         finally:
             release_c_and_python_memory()

@@ -446,13 +446,22 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
                 if (s.get("heading") or s.get("title")) and s.get("archetype") != "cover" and s.get("layout_type") != "cover"
             ]
 
-            # 1. Muqova (Cover) slaydi
+            # 1. Muqova (Cover) slaydi — agar muqova 6 blokli infografika bo'lsa (masalan Minimalist Timeline), haqiqiy AI punktlarini olamiz!
             has_cover = any((s.get("archetype") == "cover" or s.get("layout_type") == "cover") for s in slides_raw)
             if not has_cover:
-                cover_highlights = [
-                    TopicLogicValidator.enrich_short_point(t_head, topic, topic, i)
-                    for i, t_head in enumerate(agenda_titles[:6], 1)
-                ]
+                cover_highlights = []
+                for i, s_obj in enumerate(slides_raw[:6], 1):
+                    s_pts = s_obj.get("points") or s_obj.get("bullets") or []
+                    s_head = str(s_obj.get("heading") or s_obj.get("title") or f"Yo'nalish {i}").strip()
+                    if s_pts and isinstance(s_pts, list) and str(s_pts[0]).strip():
+                        first_pt = str(s_pts[0]).strip()
+                        if ":" in first_pt:
+                            _, pt_desc = first_pt.split(":", 1)
+                            cover_highlights.append(f"{s_head}: {pt_desc.strip()}")
+                        else:
+                            cover_highlights.append(f"{s_head}: {first_pt}")
+                    else:
+                        cover_highlights.append(TopicLogicValidator.enrich_short_point(s_head, topic, topic, i))
                 formatted_slides.append({
                     "title": topic,
                     "subtitle": spec.get("description") or spec.get("subtitle") or "Professional tahliliy taqdimot va hisobot",
@@ -465,11 +474,18 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
             # 2. Reja (Mundarija / Agenda) slaydi
             has_agenda = any((s.get("archetype") == "agenda" or s.get("layout_type") == "agenda") for s in slides_raw)
             if not has_agenda and (target_count >= 5 or len(slides_raw) >= 3):
-                agenda_rich = [
-                    f"{t_head}: Asosiy tushunchalar, tahliliy ko'rsatkichlar va amaliy yechimlar"
-                    if ":" not in t_head else t_head
-                    for t_head in agenda_titles[:6]
-                ]
+                agenda_rich = []
+                for idx_a, s_obj in enumerate(slides_raw[:6], 1):
+                    t_head = str(s_obj.get("heading") or s_obj.get("title") or f"Bo'lim {idx_a}").strip()
+                    s_pts = s_obj.get("points") or s_obj.get("bullets") or []
+                    if s_pts and isinstance(s_pts, list) and str(s_pts[0]).strip():
+                        p0 = str(s_pts[0]).strip()
+                        p_desc = p0.split(":", 1)[1].strip() if ":" in p0 else p0
+                        if len(p_desc) > 62:
+                            p_desc = p_desc[:60].rsplit(" ", 1)[0] + "..."
+                        agenda_rich.append(f"{t_head}: {p_desc}")
+                    else:
+                        agenda_rich.append(f"{t_head}: Nazariy asoslar va amaliy mexanizmlar tahlili")
                 formatted_slides.append({
                     "title": "Mundarija",
                     "subtitle": "Taqdimotning asosiy bosqichlari va tuzilishi",
@@ -525,20 +541,18 @@ def generate_pptx_file(spec: Dict[str, Any], out_path: str) -> str:
                 for s in slides_raw
             )
             if not has_conclusion:
+                conc_pts = [
+                    f"Nazariy sintez: «{topic}» bo'yicha asosiy ilmiy va tahliliy natijalar tizimli ravishda umumlashtirildi.",
+                    "Metodologik ahamiyat: O'rganilgan qonuniyatlar va konseptual yondashuvlar zamonaviy fan taraqqiyotida muhim o'rin tutadi.",
+                    "Amaliy tatbiq: Zamonaviy texnologik yondashuvlarni amaliyotga joriy etishning ustuvor istiqbollari belgilandi.",
+                    "Yakuniy xulosa: E'tiboringiz uchun rahmat! Savollar, fikr-mulohazalar va ilmiy munozaralar uchun tayyormiz.",
+                ]
                 formatted_slides.append({
                     "title": "Xulosa va Tavsiyalar",
                     "subtitle": "Asosiy xulosalar va amaliy takliflar",
                     "layout_type": "conclusion_sources",
-                    "points": [
-                        f"Ilmiy xulosa: «{topic}» bo'yicha asosiy nazariy va tahliliy natijalar tizimli ravishda umumlashtirildi.",
-                        "Amaliy tatbiq: Zamonaviy texnologik yondashuvlarni amaliyotga joriy etishning ustuvor istiqbollari belgilandi.",
-                        "Yakuniy qism: E'tiboringiz uchun rahmat! Savollar, fikr-mulohazalar va takliflar uchun tayyormiz.",
-                    ],
-                    "bullets": [
-                        f"Ilmiy xulosa: «{topic}» bo'yicha asosiy nazariy va tahliliy natijalar tizimli ravishda umumlashtirildi.",
-                        "Amaliy tatbiq: Zamonaviy texnologik yondashuvlarni amaliyotga joriy etishning ustuvor istiqbollari belgilandi.",
-                        "Yakuniy qism: E'tiboringiz uchun rahmat! Savollar, fikr-mulohazalar va takliflar uchun tayyormiz.",
-                    ],
+                    "points": conc_pts,
+                    "bullets": conc_pts,
                     "speaker_notes": "E'tiboringiz uchun katta rahmat! Mavzu yuzasidan savol va takliflaringizni berishingiz mumkin.",
                 })
 

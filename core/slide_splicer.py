@@ -20,12 +20,188 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE_TYPE
+from pptx.shapes.autoshape import Shape as _PptxAutoShape
+_orig_shape_type_fget = _PptxAutoShape.shape_type.fget
+def _safe_shape_type(self):
+    try:
+        return _orig_shape_type_fget(self)
+    except NotImplementedError:
+        return MSO_SHAPE_TYPE.TEXT_BOX if getattr(self, "has_text_frame", False) else MSO_SHAPE_TYPE.AUTO_SHAPE
+_PptxAutoShape.shape_type = property(_safe_shape_type)
+
 from pptx.oxml import parse_xml
 from pptx.oxml.ns import nsdecls
 
 from core.splicer_guardian import SplicerGuardian
 
 logger = logging.getLogger("SlideSplicer")
+
+import colorsys
+from pptx.oxml.ns import qn
+
+def normalize_slide_group_coordinates(slide) -> None:
+    """
+    Normalizes <p:grpSpPr><a:xfrm> across all groups on a slide so chOff == off and chExt == ext,
+    giving every child shapeinside groups its exact true slide-space (left, top, width, height).
+    """
+    def _norm_grp(grp_el):
+        grpSpPr = grp_el.find(qn("p:grpSpPr"))
+        if grpSpPr is None:
+            return
+        xfrm = grpSpPr.find(qn("a:xfrm"))
+        if xfrm is None:
+            return
+        off = xfrm.find(qn("a:off"))
+        ext = xfrm.find(qn("a:ext"))
+        chOff = xfrm.find(qn("a:chOff"))
+        chExt = xfrm.find(qn("a:chExt"))
+        if None in (off, ext, chOff, chExt):
+            return
+        ox, oy = int(off.get("x", 0)), int(off.get("y", 0))
+        ex, ey = int(ext.get("cx", 0)), int(ext.get("cy", 0))
+        cx_off, cy_off = int(chOff.get("x", 0)), int(chOff.get("y", 0))
+        cx_ext, cy_ext = int(chExt.get("cx", 0)), int(chExt.get("cy", 0))
+        if cx_ext <= 0 or cy_ext <= 0 or ex <= 0 or ey <= 0:
+            return
+        if (ox, oy, ex, ey) != (cx_off, cy_off, cx_ext, cy_ext):
+            sx = ex / float(cx_ext)
+            sy = ey / float(cy_ext)
+            for child in grp_el:
+                tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                c_spPr = None
+                if tag == "grpSp":
+                    c_spPr = child.find(qn("p:grpSpPr"))
+                elif tag in ("sp", "pic", "cxnSp", "graphicFrame"):
+                    c_spPr = child.find(qn("p:spPr"))
+                    if c_spPr is None:
+                        c_spPr = child.find(qn("p:xfrm"))
+                if c_spPr is not None:
+                    c_xfrm = c_spPr if c_spPr.tag.endswith("xfrm") else c_spPr.find(qn("a:xfrm"))
+                    if c_xfrm is not None:
+                        c_off = c_xfrm.find(qn("a:off"))
+                        c_ext = c_xfrm.find(qn("a:ext"))
+                        if c_off is not None:
+                            x = int(c_off.get("x", 0))
+                            y = int(c_off.get("y", 0))
+                            c_off.set("x", str(int(round(ox + (x - cx_off) * sx))))
+                            c_off.set("y", str(int(round(oy + (y - cy_off) * sy))))
+                        if c_ext is not None:
+                            w = int(c_ext.get("cx", 0))
+                            h = int(c_ext.get("cy", 0))
+                            c_ext.set("cx", str(int(round(w * sx))))
+                            c_ext.set("cy", str(int(round(h * sy))))
+            chOff.set("x", str(ox))
+            chOff.set("y", str(oy))
+            chExt.set("cx", str(ex))
+            chExt.set("cy", str(ey))
+        for child in grp_el:
+            if child.tag.endswith("grpSp"):
+                _norm_grp(child)
+
+    try:
+        for el in slide.shapes._spTree:
+            if el.tag.endswith("grpSp"):
+                _norm_grp(el)
+    except Exception:
+        pass
+
+
+def extract_slide_theme_color_map(slide) -> Dict[str, str]:
+    theme_rgb = {
+        "dk1": "000000", "lt1": "FFFFFF",
+        "dk2": "1F497D", "lt2": "EEECE1",
+        "accent1": "4F81BD", "accent2": "C0504D",
+        "accent3": "9BBB59", "accent4": "8064A2",
+        "accent5": "4BACC6", "accent6": "F79646",
+        "hlink": "0000FF", "folHlink": "800080",
+        "black": "000000", "white": "FFFFFF",
+    }
+    clr_map = {
+        "bg1": "lt1", "tx1": "dk1",
+        "bg2": "lt2", "tx2": "dk2",
+        "accent1": "accent1", "accent2": "accent2",
+        "accent3": "accent3", "accent4": "accent4",
+        "accent5": "accent5", "accent6": "accent6",
+        "hlink": "hlink", "folHlink": "folHlink",
+    }
+    try:
+        master = slide.slide_layout.slide_master
+        m_clrMap = master._element.find(qn("p:clrMap"))
+        if m_clrMap is not None:
+            for k, v in m_clrMap.attrib.items():
+                clr_map[k.split("}")[-1] if "}" in k else k] = v
+        s_clrMapOvr = slide._element.find(qn("p:clrMapOvr"))
+        if s_clrMapOvr is not None:
+            ovr = s_clrMapOvr.find(qn("a:overrideClrMapping"))
+            if ovr is not None:
+                for k, v in ovr.attrib.items():
+                    clr_map[k.split("}")[-1] if "}" in k else k] = v
+        for rel in master.part.rels.values():
+            if "theme" in rel.reltype:
+                t_el = parse_xml(rel.target_part.blob.decode("utf-8", errors="ignore"))
+                clrScheme = t_el.find(".//" + qn("a:clrScheme"))
+                if clrScheme is not None:
+                    for child in clrScheme:
+                        cname = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                        srgb = child.find(qn("a:srgbClr"))
+                        sysClr = child.find(qn("a:sysClr"))
+                        if srgb is not None and srgb.get("val"):
+                            theme_rgb[cname] = srgb.get("val").upper()
+                        elif sysClr is not None and sysClr.get("lastClr"):
+                            theme_rgb[cname] = sysClr.get("lastClr").upper()
+                break
+    except Exception:
+        pass
+    final_map = dict(theme_rgb)
+    for alias, target in clr_map.items():
+        if target in theme_rgb:
+            final_map[alias] = theme_rgb[target]
+    return final_map
+
+
+def _apply_color_modifiers(hex_str: str, scheme_el) -> str:
+    try:
+        r = int(hex_str[0:2], 16) / 255.0
+        g = int(hex_str[2:4], 16) / 255.0
+        b = int(hex_str[4:6], 16) / 255.0
+        h, l, s = colorsys.rgb_to_hls(r, g, b)
+        for mod in scheme_el:
+            mtag = mod.tag.split("}")[-1] if "}" in mod.tag else mod.tag
+            val = int(mod.get("val", "100000")) / 100000.0
+            if mtag == "lumMod":
+                l = l * val
+            elif mtag == "lumOff":
+                l = l + val
+            elif mtag == "tint":
+                l = l + (1.0 - l) * (1.0 - val)
+            elif mtag == "shade":
+                l = l * val
+        l = max(0.0, min(1.0, l))
+        r2, g2, b2 = colorsys.hls_to_rgb(h, l, s)
+        return f"{int(round(r2*255)):02X}{int(round(g2*255)):02X}{int(round(b2*255)):02X}"
+    except Exception:
+        return hex_str
+
+
+def bake_scheme_colors_in_element(root_el, color_map: Dict[str, str]) -> None:
+    if not color_map or root_el is None:
+        return
+    nsa = nsdecls("a")
+    mod_fn = globals().get("_apply_color_modifiers") or globals().get("apply_color_modifiers")
+    for sc in list(root_el.xpath(".//a:schemeClr")):
+        val = sc.get("val", "")
+        if val in color_map:
+            hex_c = mod_fn(color_map[val], sc)
+            alpha_el = sc.find(qn("a:alpha"))
+            if alpha_el is not None and alpha_el.get("val"):
+                aval = alpha_el.get("val")
+                new_el = parse_xml(f'<a:srgbClr {nsa} val="{hex_c}"><a:alpha val="{aval}"/></a:srgbClr>')
+            else:
+                new_el = parse_xml(f'<a:srgbClr {nsa} val="{hex_c}"/>')
+            p = sc.getparent()
+            if p is not None:
+                p.replace(sc, new_el)
+
 
 
 class ThemeColorExtractor:
@@ -118,12 +294,21 @@ class HarmonizedSlideCloner:
                     if 'cy' in ext.attrib:
                         ext.set('cy', str(int(round(int(ext.get('cy', '0')) * sy))))
 
-            # 2. Scale font sizes (a:rPr and a:defRPr) by sy
+            # 1b. Scale table column widths (<a:gridCol w="..."/>) by sx so 16:9 tables fit 4:3 slides
+            for gcol in elem_copy.xpath('.//a:tblGrid/a:gridCol'):
+                if 'w' in gcol.attrib:
+                    try:
+                        gcol.set('w', str(int(round(int(gcol.get('w', '0')) * sx))))
+                    except Exception:
+                        pass
+
+            # 2. Scale font sizes (a:rPr and a:defRPr) by min(sx, sy) so narrow badges ('30%', '2025') never wrap when splicing 16:9 -> 4:3
+            f_scale = min(sx, sy)
             for rpr in elem_copy.xpath('.//a:rPr | .//a:defRPr | .//a:endParaRPr'):
                 if 'sz' in rpr.attrib:
                     try:
                         old_sz = int(rpr.get('sz'))
-                        rpr.set('sz', str(int(round(old_sz * sy))))
+                        rpr.set('sz', str(int(round(old_sz * f_scale))))
                     except Exception:
                         pass
         except Exception as e:
@@ -158,9 +343,13 @@ class HarmonizedSlideCloner:
         except Exception:
             pass
 
-        # 1. Replicate background only when requested (for cross-deck donors, keep target deck's native background)
+        # 1. Replicate background when requested, and hide target SlideMaster shapes (e.g. corner icons) on cross-deck splices
         if replicate_background:
             SplicerGuardian.replicate_slide_background(source_slide, target_slide)
+        try:
+            target_slide._element.set("showMasterSp", "0")
+        except Exception:
+            pass
 
         # Compute resolution scale factors between source and target presentations
         sx, sy = 1.0, 1.0
@@ -174,10 +363,19 @@ class HarmonizedSlideCloner:
         except Exception:
             pass
 
+        # Normalize group coordinates and extract source slide theme color map before cloning
+        normalize_slide_group_coordinates(source_slide)
+        src_color_map = extract_slide_theme_color_map(source_slide)
+        bake_scheme_colors_in_element(target_slide._element.find(qn("p:cSld")), src_color_map)
+
         # 2. Clone each shape safely with full media relationship remapping
         rel_map = {}
         for shp in source_slide.shapes:
             try:
+                # Skip empty picture/content placeholders so they never render as empty gray boxes
+                if shp.is_placeholder and (not shp.has_text_frame or not shp.text_frame.text.strip()):
+                    continue
+
                 elem_copy = SplicerGuardian.safe_clone_shape_with_rels(
                     shp._element,
                     source_slide.part,
@@ -190,10 +388,29 @@ class HarmonizedSlideCloner:
                     if spPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}xfrm") is None:
                         if shp.left is not None and shp.top is not None and shp.width is not None and shp.height is not None:
                             xfrm_elem = parse_xml(
-                                f'<a:xfrm {nsdecls("a")}><a:off x="{shp.left}" y="{shp.top}"/><a:ext cx="{shp.width}" cy="{shp.height}"/></a:xfrm>'
+                                f'<a:xfrm {nsdecls("a")}><a:off x="{int(shp.left)}" y="{int(shp.top)}"/><a:ext cx="{int(shp.width)}" cy="{int(shp.height)}"/></a:xfrm>'
                             )
                             spPr.insert(0, xfrm_elem)
 
+                # Convert cloned text placeholder into standalone TextBox so it never breaks on target blank_layout
+                if shp.is_placeholder:
+                    spPr_el = elem_copy.find(qn("p:spPr"))
+                    if spPr_el is not None and spPr_el.find(qn("a:prstGeom")) is None and spPr_el.find(qn("a:custGeom")) is None:
+                        spPr_el.append(parse_xml(f"<a:prstGeom {nsdecls('a')} prst=\"rect\"><a:avLst/></a:prstGeom>"))
+                    nvSpPr = elem_copy.find(qn("p:nvSpPr"))
+                    if nvSpPr is not None:
+                        cNvPr = nvSpPr.find(qn("p:cNvPr"))
+                        if cNvPr is not None and "Placeholder" in cNvPr.get("name", ""):
+                            cNvPr.set("name", "Title Header")
+                        cNvSpPr = nvSpPr.find(qn("p:cNvSpPr"))
+                        if cNvSpPr is not None:
+                            cNvSpPr.set("txBox", "1")
+                        nvPr = nvSpPr.find(qn("p:nvPr"))
+                        if nvPr is not None:
+                            for ph_el in list(nvPr.findall(qn("p:ph"))):
+                                nvPr.remove(ph_el)
+
+                bake_scheme_colors_in_element(elem_copy, src_color_map)
                 cls._scale_cloned_element_geometry(elem_copy, sx, sy)
                 target_slide.shapes._spTree.append(elem_copy)
             except Exception as e:
@@ -440,26 +657,50 @@ class CrossDeckSlideDonor:
         target_slide: Any,
         theme_palette: Optional[Dict[str, Any]],
         used_donors: set,
+        item_count: int = 4,
     ) -> Optional[Tuple[str, int]]:
         """
-        Tanlangan arxetip bo'yicha donor slaydni topib, target_slide o'lchamiga moslab (sx, sy)
-        va asosiy taqdimot fonini buzmasdan (replicate_background=False) nusxalaydi.
+        Tanlangan arxetip va punktlar soniga (3, 4 yoki 6 ta) mos donor slaydni topib,
+        target_slide o'lchamiga moslab (sx, sy) nusxalaydi.
         """
         import gc
         cls._ensure_index()
         if not cls._ARCHETYPE_INDEX:
             return None
 
-        candidates = list(cls._ARCHETYPE_INDEX.get(archetype, []))
+        primary_cands = list(cls._ARCHETYPE_INDEX.get(archetype, []))
+        # Match slot capacity to item_count:
+        # - For agenda with >= 5 items, prefer agenda_2.pptx (6-slot 2x3 grid)
+        # - For 3-point content slides, prefer _2.pptx (3-slot layout) so there is never an empty 4th card!
+        if len(primary_cands) >= 2:
+            if archetype == "agenda" and item_count >= 5:
+                primary_cands = [c for c in primary_cands if "_2" in c[0]] + [c for c in primary_cands if "_2" not in c[0]]
+            elif archetype in ("cards_grid", "timeline_steps", "metrics_stats") and item_count == 3:
+                primary_cands = [c for c in primary_cands if "_2" in c[0]] + [c for c in primary_cands if "_2" not in c[0]]
+            elif archetype in ("cards_grid", "timeline_steps", "metrics_stats") and item_count >= 4:
+                primary_cands = [c for c in primary_cands if "_1" in c[0]] + [c for c in primary_cands if "_1" not in c[0]]
+
+        fallback_cands = []
         for fallback_atype in ("cards_grid", "timeline_steps", "theory_concept", "comparison_vs"):
             if fallback_atype != archetype:
-                candidates.extend(cls._ARCHETYPE_INDEX.get(fallback_atype, []))
+                fb_list = list(cls._ARCHETYPE_INDEX.get(fallback_atype, []))
+                if item_count == 3:
+                    fb_list = [c for c in fb_list if "_2" in c[0] or "theory_concept" in c[0]] + [c for c in fb_list if "_2" not in c[0] and "theory_concept" not in c[0]]
+                fallback_cands.extend(fb_list)
 
+        candidates = primary_cands + fallback_cands
+        # If all primary_cands were already used in a long deck, allow reusing the slot-matched primary candidate
+        chosen_pair = None
         for p_path, s_idx in candidates:
             donor_key = f"{p_path}#{s_idx}"
-            if donor_key in used_donors:
-                continue
-            used_donors.add(donor_key)
+            if donor_key not in used_donors:
+                used_donors.add(donor_key)
+                chosen_pair = (p_path, s_idx)
+                break
+        if chosen_pair is None and primary_cands:
+            chosen_pair = primary_cands[0]
+
+        for p_path, s_idx in ([chosen_pair] if chosen_pair else []):
             try:
                 donor_prs = Presentation(p_path)
                 if s_idx < len(donor_prs.slides):
@@ -467,8 +708,8 @@ class CrossDeckSlideDonor:
                     HarmonizedSlideCloner.clone_slide_to_target(
                         donor_slide,
                         target_slide,
-                        theme_palette=theme_palette,
-                        replicate_background=False,
+                        theme_palette=None,
+                        replicate_background=True,
                     )
                     del donor_prs
                     gc.collect()

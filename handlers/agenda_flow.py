@@ -779,10 +779,13 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
             except Exception:
                 pass
 
+        perm_dir = os.path.join(tempfile.gettempdir(), "soff_ready")
+        os.makedirs(perm_dir, exist_ok=True)
+
         async def _build_slide_job():
             # Cloud shablon va qo'shimcha donor shablonlarni (17,250 Telegram Vault'dan) yuklab olish
             resolved_pptx, donor_pptx_paths = await GLOBAL_TEMPLATE_CATALOG.ensure_multi_template_pool_available(
-                topic=title, primary_tpl_id=tpl_id, bot=callback.bot, max_donors=3
+                topic=title, primary_tpl_id=tpl_id, bot=callback.bot, max_donors=6
             )
 
             # 2-bosqich: Gemini AI matnlarni yozishi
@@ -847,7 +850,7 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
                     job_id=f"pptx_{user_id}_{int(time.time())}",
                     coro_factory=_build_slide_job,
                 ),
-                timeout=95.0,  # 95s strict timeout
+                timeout=180.0,  # 180s (3 daqiqa) kengaytirilgan timeout
             )
 
             # Soff.uz va DTM Test registratsiyasi
@@ -902,13 +905,18 @@ async def cb_confirm_build(callback: CallbackQuery, state: FSMContext):
             last_send_err = None
             for attempt in range(3):
                 try:
-                    await callback.bot.send_document(
-                        chat_id=user_id,
-                        document=doc_file,
-                        caption=caption_txt,
-                        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_after),
-                        parse_mode="HTML",
-                        request_timeout=60,
+                    # Har bir urinishda doc_file yangidan ochilishi shart (stream pointer 0 da bo'lishi uchun)
+                    fresh_doc_file = FSInputFile(out_path, filename=f"{safe_fn}.pptx")
+                    await asyncio.wait_for(
+                        callback.bot.send_document(
+                            chat_id=user_id,
+                            document=fresh_doc_file,
+                            caption=caption_txt,
+                            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_after),
+                            parse_mode="HTML",
+                            request_timeout=45,
+                        ),
+                        timeout=50.0,
                     )
                     send_success = True
                     break

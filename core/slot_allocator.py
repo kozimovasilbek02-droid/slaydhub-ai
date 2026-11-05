@@ -248,17 +248,20 @@ class SlotAllocator:
     def balance_deck(
         cls,
         slides_data: List[Dict[str, Any]],
-        default_max_slots: int = 4
+        default_max_slots: int = 6
     ) -> List[Dict[str, Any]]:
         """
         Deck Balancer for TemplateDeckAssembler:
-        Scans all slides and expands dense ones into continuation slides.
+        Keeps Agenda (Mundarija), Cover, Table, and up to 6-item slides intact on a single slide
+        so Mundarija is never split into (1/2-Qism) and (2/2-Qism).
         """
+        eff_max = max(6, default_max_slots)
         balanced = []
         for s_item in slides_data:
             item_count = cls.count_content_items(s_item)
-            if item_count > default_max_slots and not s_item.get("is_cover", False) and s_item.get("layout_type") not in ["table_data", "cover"]:
-                parts = cls.partition_into_continuation_slides(s_item, max_slots_per_slide=default_max_slots)
+            l_type = s_item.get("layout_type", "")
+            if item_count > eff_max and not s_item.get("is_cover", False) and l_type not in ["table_data", "cover", "agenda", "conclusion_sources"]:
+                parts = cls.partition_into_continuation_slides(s_item, max_slots_per_slide=4)
                 balanced.extend(parts)
             else:
                 balanced.append(s_item)

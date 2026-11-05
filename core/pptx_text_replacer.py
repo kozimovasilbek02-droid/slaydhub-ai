@@ -318,14 +318,39 @@ class DeepWatermarkPurger:
         except Exception as e:
             logger.debug(f"SecurityPurger sweep encountered exception: {e}")
 
+        sw_emu = int(prs.slide_width) if prs.slide_width else 9144000
+        sh_emu = int(prs.slide_height) if prs.slide_height else 6858000
+
+        def _prune_offcanvas_and_instruction_notes(shapes_col):
+            for sh in list(shapes_col):
+                try:
+                    l = int(sh.left) if sh.left is not None else 0
+                    t = int(sh.top) if sh.top is not None else 0
+                    w = int(sh.width) if sh.width is not None else 0
+                    h = int(sh.height) if sh.height is not None else 0
+                    # Off-canvas sticky notes (placed outside slide bounds by template authors)
+                    if l >= sw_emu * 0.96 or (l + w) <= 45720 or t >= sh_emu * 0.96 or (t + h) <= 45720:
+                        SemanticShapeCleaner.prune_shape(sh)
+                        continue
+                    t_children = AdSlideFilter.collect_all_text_shapes_recursive([sh])
+                    comb_txt = " ".join(c.text_frame.text.lower() for c in t_children if c.has_text_frame)
+                    if any(bad in comb_txt for bad in ("to insert your own", "insert >>", "office 365", "subscribers", "free-powerpoint-templates", "allppt.com", "slidesgo", "slidescarnival")):
+                        SemanticShapeCleaner.prune_shape(sh)
+                        continue
+                except Exception:
+                    pass
+
         # 1. Slide Masters and Layouts
         for master in prs.slide_masters:
+            _prune_offcanvas_and_instruction_notes(master.shapes)
             cls.purge_shape_tree(master.shapes)
             for layout in master.slide_layouts:
+                _prune_offcanvas_and_instruction_notes(layout.shapes)
                 cls.purge_shape_tree(layout.shapes)
 
         # 2. Slide Instances and Notes
         for slide in prs.slides:
+            _prune_offcanvas_and_instruction_notes(slide.shapes)
             cls.purge_shape_tree(slide.shapes)
             if hasattr(slide, "has_notes_slide") and slide.has_notes_slide:
                 try:
@@ -931,6 +956,43 @@ class PPTXTextReplacer:
         except Exception:
             pass
 
+        # Check if an underlying colored vector shape on the slide sits behind this textbox's center (cx, cy)
+        try:
+            if shape.left is not None and shape.top is not None and shape.width is not None and shape.height is not None:
+                cx = float(shape.left) + float(shape.width) * 0.5
+                cy = float(shape.top) + float(shape.height) * 0.5
+                sld_el = shape._element.xpath('ancestor::p:sld')
+                if sld_el:
+                    # Inspect all <p:sp> elements on the slide that have a solidFill and contain (cx, cy)
+                    for sp_el in sld_el[0].xpath('.//p:sp'):
+                        if sp_el is shape._element:
+                            continue
+                        xfrm = sp_el.find('.//{http://schemas.openxmlformats.org/drawingml/2006/main}xfrm')
+                        if xfrm is None:
+                            continue
+                        off = xfrm.find('{http://schemas.openxmlformats.org/drawingml/2006/main}off')
+                        ext = xfrm.find('{http://schemas.openxmlformats.org/drawingml/2006/main}ext')
+                        if off is None or ext is None:
+                            continue
+                        sx_e, sy_e = float(off.get('x', 0)), float(off.get('y', 0))
+                        sw_e, sh_e = float(ext.get('cx', 0)), float(ext.get('cy', 0))
+                        if sw_e <= 0 or sh_e <= 0:
+                            continue
+                        if sx_e <= cx <= (sx_e + sw_e) and sy_e <= cy <= (sy_e + sh_e):
+                            if sp_el.xpath('./p:spPr/a:noFill'):
+                                continue
+                            srgb = sp_el.xpath('./p:spPr/a:solidFill/a:srgbClr/@val | ./p:style/a:fillRef[not(@idx="0")]/a:srgbClr/@val')
+                            if srgb and len(srgb[0]) == 6:
+                                hx = srgb[0]
+                                r, g, b = int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16)
+                                lum = 0.299 * r + 0.587 * g + 0.114 * b
+                                if lum < 185.0:
+                                    return True
+                                elif lum > 225.0:
+                                    return False
+        except Exception:
+            pass
+
         try:
             part = shape.part
             lum = cls.get_slide_bg_luminance(part)
@@ -1063,12 +1125,20 @@ class PPTXTextReplacer:
             return
 
         tf = shape.text_frame
-        tf.word_wrap = True
-        tf.margin_left = Inches(0.04 * scale_factor)
-        tf.margin_right = Inches(0.04 * scale_factor)
-        tf.margin_top = Inches(0.04 * scale_factor)
-        tf.margin_bottom = Inches(0.04 * scale_factor)
-        cls.enable_xml_autofit(tf)
+        is_short_badge = len(str(new_text or "").strip()) <= 4 and not is_title and not is_card_title
+        if is_short_badge:
+            tf.word_wrap = False
+            tf.margin_left = 0
+            tf.margin_right = 0
+            tf.margin_top = 0
+            tf.margin_bottom = 0
+        else:
+            tf.word_wrap = True
+            tf.margin_left = Inches(0.04 * scale_factor)
+            tf.margin_right = Inches(0.04 * scale_factor)
+            tf.margin_top = Inches(0.04 * scale_factor)
+            tf.margin_bottom = Inches(0.04 * scale_factor)
+            cls.enable_xml_autofit(tf)
 
         # Extract authentic template bullet styles before text replacement (Round 13)
         template_bullet_styles = BulletHarmonizer.extract_shape_bullet_styles(shape)
@@ -1291,8 +1361,18 @@ class PPTXTextReplacer:
         content_items: List[Tuple[str, str]] = []
 
         if layout_type == "cover":
-            subtitle = slide_data.get("subtitle", "Akademik va amaliy tahliliy qo'llanma | 2026-yil")
-            content_items.append(("", subtitle))
+            cov_pts = slide_data.get("points") or slide_data.get("bullets") or []
+            if cov_pts and len(cov_pts) >= 2:
+                for p in cov_pts:
+                    clean_p = re.sub(r'^(?:[\•\-\–\—\*]\s*|\d+[\.\)](?!\d)\s+|\(\d+\)\s*)', '', str(p).strip()).strip()
+                    if ":" in clean_p:
+                        h, d = clean_p.split(":", 1)
+                        content_items.append((h.strip(), d.strip()))
+                    else:
+                        content_items.append((clean_p, ""))
+            else:
+                subtitle = slide_data.get("subtitle", "Akademik va amaliy tahliliy qo'llanma | 2026-yil")
+                content_items.append(("", subtitle))
 
         elif layout_type == "agenda":
             points = slide_data.get("points", [])
@@ -1305,20 +1385,32 @@ class PPTXTextReplacer:
                     content_items.append((clean_p, ""))
 
         elif layout_type == "theory_concept":
-            concept_name = slide_data.get("concept_name", "Nazariy Tushuncha")
-            # Prevent title duplication: if concept_name echoes the slide title, replace with analytical heading
-            c_clean = str(concept_name).strip().lower().rstrip(".:")
-            t_clean = str(title_text).strip().lower().rstrip(".:")
-            if c_clean == t_clean or (len(c_clean) > 8 and c_clean in t_clean) or (len(t_clean) > 8 and t_clean in c_clean):
-                concept_name = "Nazariy Asos va Mohiyat"
-            definition = slide_data.get("definition", "")
-            formula = slide_data.get("key_formula_or_law", "")
-            importance = slide_data.get("importance", "")
-            content_items.append((concept_name, definition))
-            if formula:
-                content_items.append(("Asosiy Qonuniyat / Formula", formula))
-            if importance:
-                content_items.append(("Ilmiy va Amaliy Ahamiyati", importance))
+            raw_pts = slide_data.get("points") or slide_data.get("bullets") or []
+            if raw_pts:
+                for p in raw_pts:
+                    clean_p = re.sub(r'^(?:[\•\-\–\—\*]\s*|\d+[\.\)](?!\d)\s+|\(\d+\)\s*)', '', str(p).strip()).strip()
+                    if ":" in clean_p:
+                        h, d = clean_p.split(":", 1)
+                        content_items.append((h.strip(), d.strip()))
+                    elif " - " in clean_p:
+                        h, d = clean_p.split(" - ", 1)
+                        content_items.append((h.strip(), d.strip()))
+                    else:
+                        content_items.append((clean_p, ""))
+            else:
+                concept_name = slide_data.get("concept_name", "Nazariy Tushuncha")
+                c_clean = str(concept_name).strip().lower().rstrip(".:")
+                t_clean = str(title_text).strip().lower().rstrip(".:")
+                if c_clean == t_clean or (len(c_clean) > 8 and c_clean in t_clean) or (len(t_clean) > 8 and t_clean in c_clean):
+                    concept_name = "Nazariy Asos va Mohiyat"
+                definition = slide_data.get("definition", "")
+                formula = slide_data.get("key_formula_or_law", "")
+                importance = slide_data.get("importance", "")
+                content_items.append((concept_name, definition))
+                if formula:
+                    content_items.append(("Asosiy Qonuniyat / Formula", formula))
+                if importance:
+                    content_items.append(("Ilmiy va Amaliy Ahamiyati", importance))
 
         elif layout_type == "comparison_vs":
             if slide_data.get("left_points") or slide_data.get("right_points"):
@@ -2335,6 +2427,11 @@ class PPTXTextReplacer:
         Replaces text placeholders inside a template slide with safe content zone constraints,
         deep watermark eradication, resolution-aware scaling, 2D card slot pairing, and XML shape pruning.
         """
+        try:
+            from core.slide_splicer import normalize_slide_group_coordinates
+            normalize_slide_group_coordinates(slide)
+        except Exception:
+            pass
         sw, sh, sw_pt, sh_pt = cls.get_slide_dimensions(slide)
         scale_factor = max(0.75, min(2.25, sh_pt / 540.0))
 
@@ -2378,12 +2475,10 @@ class PPTXTextReplacer:
                             pos_grp = ag
                             break
 
-                    if pos_grp is not None:
-                        eff_left = SafeShapeGeometry.to_pt(pos_grp.left, l_pt) + (l_pt * 0.01)
-                        eff_top = SafeShapeGeometry.to_pt(pos_grp.top, t_pt) + (t_pt * 0.01)
-                    else:
-                        eff_left = l_pt
-                        eff_top = t_pt
+                    # Since normalize_slide_group_coordinates(slide) normalized chOff == off and chExt == ext,
+                    # l_pt and t_pt are already the exact true slide-space coordinates!
+                    eff_left = l_pt
+                    eff_top = t_pt
 
                     is_valid_zone = (
                         eff_left >= -15.0
@@ -2598,7 +2693,9 @@ class PPTXTextReplacer:
             sub_text = "\n\n".join(subtitle_parts) if subtitle_parts else "Professional tahliliy taqdimot va hisobot"
 
             sub_candidates = [s for s in valid_shapes if id(s["shape"]) not in assigned_shapes and not s["is_step"]]
-            if sub_candidates:
+            # If the cover slide has >= 6 non-step text boxes (e.g. a 6-node timeline or 6-node padlock infographic on Slide 1),
+            # do NOT steal Card #1's header box for subtitle — fall through so all 6 infographic nodes are populated!
+            if sub_candidates and len(sub_candidates) < 6:
                 # Prefer a candidate in the same group as title, or closest below title
                 t_grp = title_shape_meta.get("parent_group")
                 same_grp_subs = [s for s in sub_candidates if t_grp is not None and s.get("parent_group") == t_grp]
@@ -2624,7 +2721,7 @@ class PPTXTextReplacer:
 
                 cls.set_shape_text_preserving_style(sub_shape, sub_text, default_font_size=16.0, slide_height_pt=sh_pt, scale_factor=scale_factor)
                 assigned_shapes.add(id(sub_shape))
-            else:
+            elif not sub_candidates:
                 if title_shape_meta.get("parent_group") is None:
                     t_bottom = title_shape_meta["shape"].top + title_shape_meta["shape"].height
                     sub_box = slide.shapes.add_textbox(
@@ -2667,8 +2764,20 @@ class PPTXTextReplacer:
         # -------------------------------------------------------------
         # 1. GROUP-BASED CARD CONTAINERS
         # -------------------------------------------------------------
-        distinct_groups = {id(s.get("parent_group")) for s in body_shapes if not s["is_step"] and s.get("parent_group") is not None}
-        has_group_cards = len(distinct_groups) >= 2 or (len(distinct_groups) == 1 and sum(1 for s in body_shapes if not s["is_step"] and s.get("parent_group") is None) == 0)
+        grp_non_step_counts: Dict[int, int] = {}
+        for s in body_shapes:
+            if not s["is_step"] and s.get("parent_group") is not None:
+                gid = id(s.get("parent_group"))
+                grp_non_step_counts[gid] = grp_non_step_counts.get(gid, 0) + 1
+        distinct_groups = set(grp_non_step_counts.keys())
+        max_per_grp = max(grp_non_step_counts.values()) if grp_non_step_counts else 0
+        has_group_cards = (
+            max_per_grp <= 2
+            and (
+                len(distinct_groups) >= 2
+                or (len(distinct_groups) == 1 and sum(1 for s in body_shapes if not s["is_step"] and s.get("parent_group") is None) == 0)
+            )
+        )
         if has_group_cards:
             card_dict = {}
             for s in body_shapes:
@@ -2726,8 +2835,8 @@ class PPTXTextReplacer:
                 SemanticShapeCleaner.cleanup_unassigned_shapes(slide, assigned_shapes, all_text_shapes, keep_step_count=len(content_items))
                 return
 
-            # If card_list has more slots than content_items on a multi-node diagram (e.g. 5-6 grouped nodes), expand content_items so all nodes are populated
-            if len(card_list) > len(content_items) and len(card_list) <= 6:
+            # Expand content_items when slide is a fixed 4, 5, or 6-node diagram so the 4th/5th/6th diagram node is never left empty!
+            if len(card_list) > len(content_items) and len(card_list) in (4, 5, 6) and layout_type != "agenda":
                 content_items = cls._expand_items_to_fill_fixed_diagram(content_items, len(card_list), title_text, topic)
 
             for c_idx, card in enumerate(card_list):
@@ -2736,7 +2845,15 @@ class PPTXTextReplacer:
                 non_step_c = [x for x in c_shapes if not x["is_step"]]
                 if not non_step_c:
                     non_step_c = c_shapes
-                non_step_c.sort(key=lambda x: x.get("inner_top", x["top"]))
+                has_long_and_short = (
+                    len(non_step_c) == 2
+                    and min(len(x["text"]) for x in non_step_c) <= 28
+                    and max(len(x["text"]) for x in non_step_c) >= 35
+                )
+                if has_long_and_short:
+                    non_step_c.sort(key=lambda x: (0 if len(x["text"]) <= 28 else 1, x["top"]))
+                else:
+                    non_step_c.sort(key=lambda x: x["top"])
                 grp = card["parent_group"]
 
                 if c_idx < len(content_items):
@@ -2857,7 +2974,7 @@ class PPTXTextReplacer:
                     next_name = next_s["name"].lower()
                     is_header_body_pair = (
                         v_gap <= 55.0 * scale_factor
-                        and len(curr_s["text"]) <= 36
+                        and (len(curr_s["text"]) <= 36 or curr_s["height"] <= next_s["height"] * 0.55)
                         and (
                             "title" in curr_name
                             or "body" in next_name
@@ -2923,8 +3040,7 @@ class PPTXTextReplacer:
 
         # If the template slide has a fixed multi-node diagram (e.g. 5 or 6 card_slots around a central graphic like Bitcoin padlock)
         # and content_items has fewer items, expand content_items so all diagram slots are filled!
-        if len(card_slots) > len(content_items) and len(card_slots) <= 6:
-            # Check if slide has vector diagram shapes in the middle
+        if len(card_slots) > len(content_items) and len(card_slots) in (5, 6):
             non_text_vectors = sum(1 for s in slide.shapes if not s.has_text_frame or not s.text_frame.text.strip())
             if non_text_vectors >= 4:
                 content_items = cls._expand_items_to_fill_fixed_diagram(content_items, len(card_slots), title_text, topic)
@@ -2980,7 +3096,18 @@ class PPTXTextReplacer:
                     cls.set_shape_text_preserving_style(desc_box, d_text, slide_height_pt=sh_pt, scale_factor=scale_factor)
             else:
                 for unused_s in slot:
-                    SemanticShapeCleaner.prune_shape(unused_s["shape"])
+                    u_shp = unused_s["shape"]
+                    u_bb = SpatialProximityCleaner.get_bbox(u_shp)
+                    SemanticShapeCleaner.prune_shape(u_shp)
+                    # Also prune any empty card rectangle/pill directly behind this unused text slot
+                    for bg_cand in list(slide.shapes):
+                        if id(bg_cand) in assigned_shapes or bg_cand.shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.TABLE, MSO_SHAPE_TYPE.CHART, MSO_SHAPE_TYPE.GROUP):
+                            continue
+                        if bg_cand.has_text_frame and bg_cand.text_frame.text.strip():
+                            continue
+                        bg_bb = SpatialProximityCleaner.get_bbox(bg_cand)
+                        if (bg_bb[2] - bg_bb[0]) < sw_pt * 0.48 and SpatialProximityCleaner.bbox_overlap(u_bb, bg_bb):
+                            SemanticShapeCleaner.prune_shape(bg_cand)
 
         # Step badges
         step_shapes = [s for s in body_shapes if s["is_step"] and id(s["shape"]) not in assigned_shapes]
@@ -3217,29 +3344,54 @@ class TemplateDeckAssembler:
         blank_layout = get_cleanest_blank_layout(prs)
         used_donors: Set[str] = set()
 
-        # Collect real multi-slide donor decks (from Telegram Cloud donor_pptx_paths + authentic local templates)
+        # Collect real donor decks from Telegram Cloud (donor_pptx_paths from 17,250 Vault)
         real_donor_decks: List[str] = []
         for dp in (content_data.get("donor_pptx_paths") or []):
             if dp and os.path.exists(dp) and os.path.abspath(dp) != os.path.abspath(template_pptx_path):
                 real_donor_decks.append(dp)
-        curr_repo_dir = Path(__file__).resolve().parent.parent / "templates"
-        for real_fn in ["2019 Business Plan PowerPoint Templates.pptx", "09_Digital_Healthcare.pptx", "07_Modern_Healthcare_Solutions.pptx"]:
-            cand_rp = curr_repo_dir / real_fn
-            if cand_rp.exists() and os.path.abspath(str(cand_rp)) != os.path.abspath(template_pptx_path):
-                if str(cand_rp) not in real_donor_decks:
-                    real_donor_decks.append(str(cand_rp))
 
-        # Pre-index valid non-ad slides inside real_donor_decks for authentic multi-template page splicing
+        # Normalize group coordinates on primary presentation slides
+        from core.slide_splicer import normalize_slide_group_coordinates
+        for orig_s in prs.slides:
+            normalize_slide_group_coordinates(orig_s)
+
+        # If primary template is a 1-3 slide 4:3 infographic (width < 12"), upgrade canvas to 16:9 Widescreen (13.333" x 7.5")
+        # so spliced 16:9 designer slides from the 17,250+ database render at native 1:1 proportions without 0.75x squishing!
+        non_ad_initial = sum(1 for m in template_slides_meta if not m["is_ad"])
+        if non_ad_initial <= 3 and prs.slide_width and prs.slide_width < Inches(12.0) and len(slides_data) > non_ad_initial:
+            old_w = int(prs.slide_width)
+            new_w = int(Inches(13.333))
+            sx_up = new_w / float(old_w)
+            prs.slide_width = new_w
+            for orig_s in prs.slides:
+                for el in orig_s.shapes._spTree:
+                    HarmonizedSlideCloner._scale_cloned_element_geometry(el, sx_up, 1.0)
+
+        # Pre-index valid non-ad slides inside real_donor_decks (including Slide 0 of 1-10 slide infographic templates from Telegram Vault!)
         real_donor_candidates: List[Tuple[str, int, str, int]] = []
         seen_donor_sigs: Set[Tuple] = set(seen_graphic_signatures)
-        for r_deck_path in real_donor_decks[:3]:
+        for r_deck_path in real_donor_decks[:2]:
             try:
                 d_prs = Presentation(r_deck_path)
+                total_d_slides = len(d_prs.slides)
+                deck_candidates_found = 0
                 for d_idx, d_slide in enumerate(d_prs.slides):
-                    if d_idx == 0 or AdSlideFilter.is_ad_or_credit_slide(d_slide, slide_index=d_idx):
+                    if d_idx > 25 or deck_candidates_found >= 3:
+                        break
+                    if AdSlideFilter.is_ad_or_credit_slide(d_slide, slide_index=d_idx):
                         continue
+                    # Skip slides that have topic-specific raster photos or empty picture placeholders when splicing across decks
+                    if total_d_slides > 10:
+                        if any(sh.shape_type == MSO_SHAPE_TYPE.PICTURE for sh in d_slide.shapes):
+                            continue
+                        if any(sh.is_placeholder and (not sh.has_text_frame or not sh.text_frame.text.strip()) for sh in d_slide.shapes):
+                            continue
+                    normalize_slide_group_coordinates(d_slide)
                     dt_shapes = AdSlideFilter.collect_all_text_shapes_recursive(d_slide.shapes)
-                    if len(dt_shapes) < 6:
+                    # Skip pure cover slides of long presentations, but KEEP Slide 0 of infographic templates (>= 4 text shapes)!
+                    if d_idx == 0 and total_d_slides > 10 and len(dt_shapes) < 6:
+                        continue
+                    if len(dt_shapes) < 4:
                         continue
                     d_sig = TemplateDeckAssembler._compute_slide_graphic_signature(d_slide)
                     if len(d_sig) >= 3:
@@ -3258,6 +3410,7 @@ class TemplateDeckAssembler:
                     else:
                         d_atype = "cards_grid"
                     real_donor_candidates.append((r_deck_path, d_idx, d_atype, len(dt_shapes)))
+                    deck_candidates_found += 1
             except Exception as e_don:
                 logger.debug(f"Could not index real donor deck {r_deck_path}: {e_don}")
 
@@ -3300,13 +3453,16 @@ class TemplateDeckAssembler:
                     except Exception as e_rc:
                         logger.debug(f"Real donor splice failed from {rc_path}#{rc_idx}: {e_rc}")
 
-            # 2. Fallback to vector archetype donors (e.g. for native table_data or if real_donor_candidates exhausted)
+            # 2. Fallback to vector archetype donors (slot-matched to 3, 4, or 6 items!)
+            req_pts = s_req_obj.get("points") or s_req_obj.get("bullets") or s_req_obj.get("cards") or []
+            req_item_cnt = len(req_pts) if isinstance(req_pts, list) and req_pts else 4
             if donor_splice_res is None:
                 donor_splice_res = CrossDeckSlideDonor.splice_donor_to_slide(
                     archetype=req_atype,
                     target_slide=new_slide,
                     theme_palette=palette,
-                    used_donors=used_donors
+                    used_donors=used_donors,
+                    item_count=req_item_cnt,
                 )
             if donor_splice_res:
                 d_path, d_idx = donor_splice_res

@@ -152,7 +152,8 @@ class TemplateCatalog:
 
     def detect_category(self, topic: str) -> str:
         """Mavzu yoki fayl nomi bo'yicha eng mos keladigan toifani aniqlaydi (UZ / EN)."""
-        t = (topic or "").lower()
+        import re
+        t = re.sub(r"[ʻʼ`’‘]", "'", (topic or "").lower())
         if any(w in t for w in [
             "yurak", "tibbiyot", "salomat", "kasallik", "dori", "tish", "shifoxona", "bemor", "doktor",
             "heart", "cardio", "dental", "pharma", "medic", "health", "hospital", "doctor", "clinic",
@@ -160,22 +161,26 @@ class TemplateCatalog:
         ]):
             return "med"
         if any(w in t for w in [
+            "blokcheyn", "blockchain", "kripto", "crypto", "bitcoin", "ai", "sun'iy", "suniy",
+            "dastur", "kod", "robot", "kompyuter", "3d", "texnolog", "kiber",
+            "tech", "software", "comput", "cyber", "cloud", "network", "coding"
+        ]):
+            return "tech"
+        if any(w in t for w in [
+            "ilmiy", "falsaf", "kvant", "nisbiylik", "fizika", "kimyo", "matematika", "nazariya",
+            "maktab", "universitet", "dars", "talaba", "tarix", "pedagog", "adabiyot", "fan",
+            "education", "school", "universit", "student", "study", "history", "lesson", "academic", "science", "quantum"
+        ]):
+            return "edu"
+        if any(w in t for w in [
             "biznes", "moliya", "reja", "marketing", "invest", "pul", "iqtisod", "startap", "daromad",
             "business", "market", "finance", "plan", "startup", "invest", "company", "corporate", "strategy"
         ]):
             return "biz"
-        if any(w in t for w in [
-            "ai", "sun'iy", "dastur", "kod", "it", "robot", "kompyuter", "3d", "texnolog",
-            "tech", "software", "comput", "digital", "data", "cyber", "cloud", "network", "analytics", "coding"
-        ]):
-            return "tech"
-        if any(w in t for w in [
-            "maktab", "universitet", "dars", "talaba", "tarix", "pedagog", "adabiyot", "fan", "til",
-            "education", "school", "universit", "student", "study", "history", "lesson", "academic", "learn", "teach"
-        ]):
-            return "edu"
-        if any(w in t for w in [
-            "tabiat", "ekolog", "o'simlik", "hayvon", "iqlim", "suv", "geograf",
+        # 'tabiati' / 'tabiatini' means 'essence of X', whereas 'tabiat' / 'tabiatni' means ecology/nature
+        t_no_essence = re.sub(r"tabiat(?:i|ini|iga|idan|ida)", "", t)
+        if any(w in t_no_essence for w in [
+            "tabiat", "ekolog", "o'simlik", "hayvon", "iqlim", "atrof-muhit", "geograf",
             "nature", "green", "ecolog", "plant", "earth", "animal", "flower", "water", "tree", "forest", "leaf", "leaves"
         ]):
             return "nature"
@@ -314,44 +319,92 @@ class TemplateCatalog:
         topic: str,
         primary_tpl_id: Optional[str] = None,
         bot=None,
-        max_donors: int = 3
+        max_donors: int = 2
     ) -> tuple[Optional[str], List[str]]:
         """
         17,250+ Telegram kanal (SlaydHub Templates Vault) shablonlaridan:
         1. Asosiy tanlangan shablonni (primary_tpl_id) yuklab oladi.
         2. Agar asosiy shablonda slaydlar soni kam bo'lsa (masalan 1-6 betlik infografika bo'lsa),
-           mavzuga mos yana 2-3 ta haqiqiy shablonni Telegram kanaldan yuklab beradi,
-           shunda dvijok bir nechta haqiqiy taqdimot betlarini birlashtirib (splice) to'laqonli taqdimot yig'adi.
+           17,250+ katalogdan mavzuga mos hamda ko'p betli/infografik shablonlarni
+           Telegram kanaldan parallel (asyncio.gather) yuklab beradi, shunda har bir slayd
+           100% haqiqiy 17,250+ shablonlar bazasidan yig'iladi.
         """
-        matches = self.smart_search(topic, top_k=max_donors + 4)
+        import asyncio
+        target_cat = self.detect_category(topic)
+        matches = self.smart_search(topic, top_k=max_donors + 6, category=target_cat)
+        # Also search structural infographic/timeline/multi-slide templates in the 17,250 catalog for the same category
+        struct_matches = self.smart_search(
+            f"{topic} infographic timeline process steps presentation",
+            top_k=6,
+            category=target_cat
+        )
+
         candidate_ids: List[str] = []
         if primary_tpl_id:
             candidate_ids.append(primary_tpl_id)
-        for m in matches:
+        for m in matches + struct_matches:
             mid = m.get("id")
             if mid and mid not in candidate_ids:
                 candidate_ids.append(mid)
 
-        primary_path: Optional[str] = None
-        donor_paths: List[str] = []
+        # Also include full 48-slide category deck IDs from the 17,250 catalog as deep structural backstops
+        cat_backstop_ids = {
+            "med": ["tpl_07_modern_healthcare_solu", "tpl_09_digital_healthcare", "tpl_11_humanity_heartbeat"],
+            "tech": ["tpl_09_digital_healthcare", "tpl_3d_printing_technology_po", "tpl_2019_business_plan_powerp"],
+            "biz": ["tpl_2019_business_plan_powerp", "tpl_09_digital_healthcare", "tpl_07_modern_healthcare_solu"],
+            "edu": ["tpl_2019_business_plan_powerp", "tpl_07_modern_healthcare_solu", "tpl_09_digital_healthcare"],
+            "nature": ["tpl_07_modern_healthcare_solu", "tpl_2019_business_plan_powerp"],
+            "minimal": ["tpl_2019_business_plan_powerp", "tpl_09_digital_healthcare", "tpl_07_modern_healthcare_solu"],
+        }
+        for bid in cat_backstop_ids.get(target_cat, ["tpl_2019_business_plan_powerp", "tpl_09_digital_healthcare"]):
+            if bid in self.templates and bid not in candidate_ids:
+                candidate_ids.append(bid)
 
-        for cid in candidate_ids:
-            resolved = await self.ensure_template_pptx_available(cid, bot=bot)
-            if resolved and os.path.exists(resolved):
+        if not candidate_ids:
+            return None, []
+
+        # 1. First ensure primary template
+        primary_path = await self.ensure_template_pptx_available(candidate_ids[0], bot=bot)
+        remaining_ids = candidate_ids[1:]
+
+        # Check if primary template already has >= 6 slides; if so, 0 extra donors needed (super fast!)
+        if primary_path and os.path.exists(primary_path):
+            try:
+                from pptx import Presentation
+                s_count = len(Presentation(primary_path).slides)
+                if s_count >= 6:
+                    return primary_path, []
+            except Exception:
+                pass
+
+        # 2. If primary template is small (1-5 slide infographic), download at most 2 donors with 12s timeout
+        batch_ids = remaining_ids[:2]
+        if batch_ids and bot:
+            async def _safe_download(cid: str) -> Optional[str]:
+                try:
+                    return await asyncio.wait_for(
+                        self.ensure_template_pptx_available(cid, bot=bot),
+                        timeout=12.0
+                    )
+                except Exception:
+                    return None
+
+            results = await asyncio.gather(
+                *(_safe_download(cid) for cid in batch_ids),
+                return_exceptions=True
+            )
+        else:
+            results = []
+
+        donor_paths: List[str] = []
+        for res in results:
+            if isinstance(res, str) and res and os.path.exists(res):
                 if primary_path is None:
-                    primary_path = resolved
-                    # Check if primary template already has >= 12 slides; if so, 1 extra donor is plenty
-                    try:
-                        from pptx import Presentation
-                        if len(Presentation(primary_path).slides) >= 15:
-                            max_donors = min(max_donors, 1)
-                    except Exception:
-                        pass
-                else:
-                    if resolved != primary_path and resolved not in donor_paths:
-                        donor_paths.append(resolved)
-                        if len(donor_paths) >= max_donors:
-                            break
+                    primary_path = res
+                elif res != primary_path and res not in donor_paths:
+                    donor_paths.append(res)
+                    if len(donor_paths) >= max_donors:
+                        break
 
         return primary_path, donor_paths
 

@@ -13,9 +13,9 @@ from core.memory_guard import NETWORK_IO_SEMAPHORE
 GEMINI_MODELS_CASCADE = [
     "gemini-3.1-flash-lite",
     "gemini-flash-lite-latest",
-    "gemini-3.8-flash",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
     "gemini-flash-latest",
-    "gemini-4-argon",
 ]
 
 DEAD_MODELS_CACHE: Dict[str, float] = {}
@@ -76,23 +76,12 @@ STAGE2_SLIDES_SCHEMA = {
             "type": "ARRAY",
             "items": {
                 "type": "OBJECT",
-                "required": ["heading", "archetype", "cards", "points", "speaker_note"],
+                "required": ["heading", "archetype", "points", "speaker_note"],
                 "properties": {
                     "heading": {"type": "STRING"},
                     "archetype": {
                         "type": "STRING",
                         "enum": ["cards_grid", "comparison_vs", "timeline_steps", "theory_concept", "metrics_stats"],
-                    },
-                    "cards": {
-                        "type": "ARRAY",
-                        "items": {
-                            "type": "OBJECT",
-                            "required": ["title", "desc"],
-                            "properties": {
-                                "title": {"type": "STRING"},
-                                "desc": {"type": "STRING"},
-                            },
-                        },
                     },
                     "points": {"type": "ARRAY", "items": {"type": "STRING"}},
                     "speaker_note": {"type": "STRING"},
@@ -314,7 +303,7 @@ def build_stage2_locked_expansion_prompt(
         f"QAT'IY QOIDALAR:\n"
         f"1. 'slides' massivida aniq {len(locked_agenda)} ta slayd bo'lishi shart — har bir reja bandiga 1 tadan!\n"
         f"2. Reja sarlavhalarini ('heading') o'zgartirma.\n"
-        f"3. MUHIM: Har bir slaydda 3 yoki 4 tadan boy, ilmiy asoslangan punkt ('points') yoz. "
+        f"3. MUHIM: Har bir slaydda ANIQ 4 tadan boy, ilmiy asoslangan punkt ('points') yoz. "
         f"Har bir 'point' QAT'IY ravishda «Kalit tushuncha: Batafsil tahliliy izoh, faktlar va mexanizmlar (15-24 so'z)» formatida bo'lishi shart! "
         f"Hech qachon 1-2 so'zlik quruq ro'yxat yozma!\n"
         f"4. Slaydlar ketma-ketligida turli xil 'archetype' lardan foydalan ('cards_grid', 'timeline_steps', 'comparison_vs', 'metrics_stats', 'theory_concept').\n"

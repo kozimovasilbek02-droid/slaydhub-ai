@@ -50,8 +50,23 @@ class TableMatrixReplacer:
             except Exception:
                 scale_factor = 1.0
 
+        # Clamp table_shape left and width to slide boundaries (critical for 4:3 10.0x7.5 slides!)
+        max_tbl_w_emu = None
         try:
-            cls._sync_table_dimensions(table, target_rows, target_cols, headers=headers)
+            prs = table_shape.part.package.presentation_part.presentation
+            sw_emu = int(prs.slide_width)
+            margin_emu = int(sw_emu * 0.055)
+            if table_shape.left < margin_emu or table_shape.left > int(sw_emu * 0.25):
+                table_shape.left = margin_emu
+            avail_w_emu = sw_emu - int(table_shape.left) - margin_emu
+            if table_shape.width > avail_w_emu or table_shape.width < int(sw_emu * 0.65):
+                table_shape.width = avail_w_emu
+            max_tbl_w_emu = int(table_shape.width)
+        except Exception:
+            pass
+
+        try:
+            cls._sync_table_dimensions(table, target_rows, target_cols, headers=headers, max_total_w_emu=max_tbl_w_emu)
         except Exception:
             return False
 
@@ -118,6 +133,7 @@ class TableMatrixReplacer:
         target_rows: int,
         target_cols: int,
         headers: Optional[List[str]] = None,
+        max_total_w_emu: Optional[int] = None,
     ):
         tbl = table._tbl
         grid = tbl.tblGrid
@@ -126,6 +142,8 @@ class TableMatrixReplacer:
         diff_cols = target_cols - current_cols
 
         total_grid_w = sum(int(c.get("w", 914400)) for c in gridCol_lst) if gridCol_lst else 9144000
+        if max_total_w_emu and max_total_w_emu > 1000000:
+            total_grid_w = max_total_w_emu
 
         if diff_cols > 0:
             for _ in range(diff_cols):
